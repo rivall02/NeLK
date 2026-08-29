@@ -335,3 +335,34 @@ export async function syncGoogleClassroom() {
   revalidatePath("/app/tasks");
   return { success: true, count: mockTasks.length };
 }
+
+// ----------------------------------------------------------------------
+// SMART SCHEDULING (V4)
+// ----------------------------------------------------------------------
+export async function autoScheduleStudy() {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  // Mock auto-schedule based on AI
+  const autoEvents = [
+    { title: "Review Matematika Bab 3", startTime: "16:00", endTime: "17:30" },
+    { title: "Kerjakan Makalah Sejarah", startTime: "19:00", endTime: "21:00" },
+  ];
+
+  const createdEvents = [];
+  for (const ev of autoEvents) {
+    const created = await prisma.event.create({
+      data: {
+        title: ev.title,
+        date: new Date(),
+        startTime: ev.startTime,
+        endTime: ev.endTime,
+        userId: session.user.id
+      }
+    });
+    createdEvents.push(created);
+  }
+
+  revalidatePath("/app/schedule");
+  return { success: true, count: createdEvents.length };
+}

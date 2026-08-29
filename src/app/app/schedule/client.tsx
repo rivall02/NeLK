@@ -7,7 +7,8 @@ import { useState } from "react";
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DATES = Array.from({ length: 31 }, (_, i) => i + 1);
 
-import { createEvent, deleteEvent as deleteEventAction } from "@/lib/actions";
+import { createEvent, deleteEvent as deleteEventAction, autoScheduleStudy } from "@/lib/actions";
+import { Sparkle } from "@phosphor-icons/react";
 
 interface ScheduleEvent {
   id: string;
@@ -23,6 +24,7 @@ export default function ScheduleClient({ initialEvents }: { initialEvents: Sched
   const [currentDate, setCurrentDate] = useState(15);
   const [view, setView] = useState<"day" | "week" | "month">("day");
   const [events, setEvents] = useState(initialEvents);
+  const [isAutoScheduling, setIsAutoScheduling] = useState(false);
 
   async function handleAddEvent() {
     const tempId = Date.now().toString();
@@ -52,6 +54,22 @@ export default function ScheduleClient({ initialEvents }: { initialEvents: Sched
   async function handleDeleteEvent(id: string) {
     setEvents(events.filter(e => e.id !== id));
     await deleteEventAction(id);
+  }
+
+  async function handleAutoSchedule() {
+    setIsAutoScheduling(true);
+    try {
+      const result = await autoScheduleStudy();
+      if (result.success) {
+        alert(`AI has generated ${result.count} smart study blocks. Reload to view.`);
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to auto schedule");
+    } finally {
+      setIsAutoScheduling(false);
+    }
   }
 
   return (
@@ -97,6 +115,14 @@ export default function ScheduleClient({ initialEvents }: { initialEvents: Sched
             ))}
           </div>
 
+          <button 
+            onClick={handleAutoSchedule}
+            disabled={isAutoScheduling}
+            className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/10 text-[#8B5CF6] rounded-full font-medium hover:bg-[#8B5CF6]/20 transition-colors active:scale-95 shadow-sm disabled:opacity-50"
+          >
+            <Sparkle weight="fill" className={isAutoScheduling ? "animate-spin" : ""} />
+            <span className="hidden sm:inline">{isAutoScheduling ? "Generating..." : "Auto Schedule"}</span>
+          </button>
           <button 
             onClick={handleAddEvent}
             className="flex items-center gap-2 px-4 py-2 bg-nelk-text-light dark:bg-nelk-text-dark text-nelk-surface-light dark:text-nelk-surface-dark rounded-full font-medium hover:bg-black dark:hover:bg-white transition-colors active:scale-95 shadow-sm"
