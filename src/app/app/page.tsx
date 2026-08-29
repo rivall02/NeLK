@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Clock,
   Target,
+  Trophy,
 } from "@phosphor-icons/react";
 import Link from "next/link";
 
@@ -36,18 +37,36 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
+      {/* Header & Gamification */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
+        className="flex flex-col md:flex-row md:items-end justify-between gap-4"
       >
-        <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text)] md:text-3xl">
-          {greeting}, Rhys
-        </h1>
-        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-          Kamu punya 3 tugas mendesak dan 4 jadwal hari ini.
-        </p>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text)] md:text-3xl">
+            {greeting}, Rhys
+          </h1>
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+            Kamu punya 3 tugas mendesak dan 4 jadwal hari ini.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 bg-[var(--color-surface)] border border-[var(--color-border)] p-3 rounded-2xl shadow-sm">
+          <div className="w-12 h-12 rounded-xl bg-yellow-100 text-yellow-600 flex items-center justify-center">
+            <Trophy size={24} weight="fill" />
+          </div>
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-sm font-bold text-[var(--color-text)]">Level 12 Scholar</span>
+              <span className="text-xs font-semibold text-[var(--color-text-muted)]">450/1000 XP</span>
+            </div>
+            <div className="w-32 h-2 bg-[var(--color-bg)] rounded-full overflow-hidden">
+              <div className="h-full bg-yellow-500 rounded-full" style={{ width: "45%" }} />
+            </div>
+          </div>
+        </div>
       </motion.div>
 
       {/* Quick Actions */}

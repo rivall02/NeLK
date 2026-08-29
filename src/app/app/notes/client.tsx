@@ -202,6 +202,11 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
                 />
               </div>
               <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center -space-x-2 mr-2">
+                  <div className="w-6 h-6 rounded-full bg-blue-500 border-2 border-[var(--color-surface)] flex items-center justify-center text-[10px] text-white font-bold" title="Alice is editing">A</div>
+                  <div className="w-6 h-6 rounded-full bg-green-500 border-2 border-[var(--color-surface)] flex items-center justify-center text-[10px] text-white font-bold" title="Bob is viewing">B</div>
+                  <div className="w-6 h-6 rounded-full bg-[var(--color-surface-hover)] border-2 border-[var(--color-surface)] flex items-center justify-center text-[10px] text-[var(--color-text-muted)] font-bold">+1</div>
+                </div>
                 <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
                   <Clock size={12} />
                   <span>{selectedNote.updatedAt}</span>
