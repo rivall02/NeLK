@@ -397,3 +397,32 @@ export async function deleteCommunityPost(id: string) {
 
   revalidatePath("/app/community");
 }
+
+// ----------------------------------------------------------------------
+// FITNESS ACTIONS (V6)
+// ----------------------------------------------------------------------
+export async function syncStrava() {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  // Create mock Strava activities
+  const mockActivities = [
+    { title: "Morning Run", type: "Run", duration: 45, calories: 420 },
+    { title: "Evening Walk", type: "Walk", duration: 30, calories: 150 },
+  ];
+
+  for (const act of mockActivities) {
+    await prisma.activity.create({
+      data: {
+        title: act.title,
+        type: act.type,
+        duration: act.duration,
+        calories: act.calories,
+        userId: session.user.id
+      }
+    });
+  }
+
+  revalidatePath("/app/fitness");
+  return { success: true, count: mockActivities.length };
+}
