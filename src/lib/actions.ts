@@ -426,3 +426,22 @@ export async function syncStrava() {
   revalidatePath("/app/fitness");
   return { success: true, count: mockActivities.length };
 }
+
+// ----------------------------------------------------------------------
+// AI CHAT ACTIONS (V7)
+// ----------------------------------------------------------------------
+export async function askAI(query: string) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return "AI Chat requires GEMINI_API_KEY in environment variables.";
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Sebagai asisten AI NeLK (Personal Academic Assistant), jawablah pertanyaan berikut dengan singkat, informatif, dan membantu:\n\nUser: ${query}`;
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (e) {
+    console.error("AI Chat error", e);
+    return "Maaf, gagal memproses permintaan. Silakan periksa koneksi atau coba lagi nanti.";
+  }
+}
