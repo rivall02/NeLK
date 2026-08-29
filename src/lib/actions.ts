@@ -567,6 +567,201 @@ export async function awardXP(amount: number) {
   const updatedUser = await prisma.user.update({
     where: { id: session.user.id },
     data: { xp: newXp, level: newLevel }
+// ----------------------------------------------------------------------
+// COMMUNITY ACTIONS (V5)
+// ----------------------------------------------------------------------
+export async function createCommunityPost(title: string, content: string, category: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const post = await prisma.communityPost.create({
+    data: {
+      title,
+      content,
+      category,
+      userId: session.user.id
+    }
+  });
+
+  revalidatePath("/app/community");
+  return post;
+}
+
+export async function deleteCommunityPost(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  await prisma.communityPost.delete({
+    where: { id, userId: session.user.id }
+  });
+
+  revalidatePath("/app/community");
+}
+
+// ----------------------------------------------------------------------
+// FITNESS ACTIONS (V6)
+// ----------------------------------------------------------------------
+export async function syncStrava() {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const stravaAccount = await prisma.account.findFirst({
+    where: { userId: session.user.id, provider: "strava" }
+  });
+
+  if (!stravaAccount || !stravaAccount.access_token) {
+    throw new Error("Strava not connected");
+  }
+
+  try {
+    const res = await fetch("https://www.strava.com/api/v3/athlete/activities?per_page=30", {
+      headers: {
+        Authorization: `Bearer ${stravaAccount.access_token}`
+      }
+    });
+
+    if (!res.ok) {
+      console.error("Strava error", await res.text());
+      throw new Error("Failed to fetch from Strava API");
+    }
+
+    const activities = await res.json();
+    let newCount = 0;
+
+    for (const act of activities) {
+      // Prevent duplicates by checking name and date
+      const existing = await prisma.activity.findFirst({
+        where: {
+          userId: session.user.id,
+          title: act.name,
+          date: new Date(act.start_date)
+        }
+      });
+
+      if (!existing) {
+        await prisma.activity.create({
+          data: {
+            title: act.name,
+            type: act.type,
+            duration: Math.round(act.moving_time / 60), // moving_time is in seconds
+            calories: act.kilojoules ? Math.round(act.kilojoules * 0.239006) : 0, // rough conversion kJ to kcal if calories not present directly
+            date: new Date(act.start_date),
+            userId: session.user.id
+          }
+        });
+        newCount++;
+      }
+    }
+
+    revalidatePath("/app/fitness");
+    return { success: true, count: newCount };
+  } catch (error) {
+    console.error("Error syncing Strava", error);
+    return { success: false, count: 0 };
+  }
+}
+
+// ----------------------------------------------------------------------
+// AI CHAT ACTIONS (V7)
+// ----------------------------------------------------------------------
+export async function askAI(query: string) {
+  const session = await auth();
+  if (!session?.user?.id) return "Maaf, Anda harus login untuk menggunakan AI.";
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return "AI Chat requires GEMINI_API_KEY in environment variables.";
+
+  try {
+    // 1. Context Retrieval (RAG)
+    const [tasks, notes] = await Promise.all([
+      prisma.task.findMany({
+        where: { userId: session.user.id },
+        select: { title: true, status: true, dueDate: true }
+      }),
+      prisma.note.findMany({
+        where: { userId: session.user.id },
+        select: { title: true, content: true },
+        take: 10,
+        orderBy: { updatedAt: "desc" }
+      })
+    ]);
+
+    const contextText = `
+Data Tugas User:
+${tasks.map(t => `- ${t.title} (Status: ${t.status}, Due: ${t.dueDate ? t.dueDate.toLocaleDateString() : 'None'})`).join('\n')}
+
+Data Catatan Terbaru User:
+${notes.map(n => `Judul: ${n.title}\nKonten Singkat: ${n.content?.substring(0, 200)}...`).join('\n\n')}
+`;
+
+    // 2. Generate
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Sebagai asisten AI NeLK (Personal Academic Assistant), jawablah pertanyaan berikut dengan singkat, informatif, dan membantu.
+    
+Berikut adalah konteks data pengguna yang relevan:
+${contextText}
+
+Pertanyaan User: ${query}`;
+    
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (e) {
+    console.error("AI Chat error", e);
+    return "Maaf, gagal memproses permintaan. Silakan periksa koneksi atau coba lagi nanti.";
+  }
+}
+
+export async function getProactiveInsight() {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return "Insight AI belum dikonfigurasi.";
+
+  try {
+    const tasks = await prisma.task.findMany({
+      where: { userId: session.user.id, status: { not: "done" } },
+      select: { title: true, dueDate: true }
+    });
+
+    if (tasks.length === 0) return "Semua tugas sudah selesai! Kamu bisa bersantai atau mulai mempelajari hal baru.";
+
+    const contextText = tasks.map(t => `- ${t.title} (Due: ${t.dueDate ? t.dueDate.toLocaleDateString() : 'None'})`).join('\n');
+    
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Berikan 1 kalimat singkat (maksimal 150 karakter) berupa insight proaktif atau peringatan halus untuk memotivasi user menyelesaikan tugas-tugas ini:\n${contextText}`;
+    
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (e) {
+    console.error("AI Insight error", e);
+    return "Tetap semangat belajar hari ini!";
+  }
+}
+
+// ----------------------------------------------------------------------
+// GAMIFICATION ACTIONS (V8)
+// ----------------------------------------------------------------------
+export async function awardXP(amount: number) {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { xp: true, level: true }
+  });
+  
+  if (!user) return null;
+
+  const newXp = user.xp + amount;
+  // Calculate level (1 level per 1000 XP)
+  const newLevel = Math.floor(newXp / 1000) + 1;
+
+  const updatedUser = await prisma.user.update({
+    where: { id: session.user.id },
+    data: { xp: newXp, level: newLevel }
   });
 
   return { xp: updatedUser.xp, level: updatedUser.level };
@@ -580,4 +775,64 @@ export async function getUserProfile() {
     where: { id: session.user.id },
     select: { xp: true, level: true }
   });
+}
+
+// ----------------------------------------------------------------------
+// NOTIFICATION & BACKGROUND JOBS (V9)
+// ----------------------------------------------------------------------
+export async function getNotifications() {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+
+  return await prisma.notification.findMany({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "desc" },
+    take: 10
+  });
+}
+
+export async function markNotificationsRead() {
+  const session = await auth();
+  if (!session?.user?.id) return;
+
+  await prisma.notification.updateMany({
+    where: { userId: session.user.id, read: false },
+    data: { read: true }
+  });
+}
+
+export async function generateTaskReminders() {
+  const session = await auth();
+  if (!session?.user?.id) return;
+
+  const upcomingTasks = await prisma.task.findMany({
+    where: {
+      userId: session.user.id,
+      status: { not: "done" },
+      dueDate: {
+        lte: new Date(Date.now() + 24 * 60 * 60 * 1000) // Within 24 hours
+      }
+    }
+  });
+
+  for (const task of upcomingTasks) {
+    // Check if notification already exists for this task recently (basic check by message content)
+    const existing = await prisma.notification.findFirst({
+      where: {
+        userId: session.user.id,
+        message: { contains: task.title },
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      }
+    });
+
+    if (!existing) {
+      await prisma.notification.create({
+        data: {
+          userId: session.user.id,
+          message: `Pengingat: Tugas "${task.title}" sudah dekat tenggat waktunya!`,
+          type: "reminder"
+        }
+      });
+    }
+  }
 }
