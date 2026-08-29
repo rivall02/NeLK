@@ -177,3 +177,103 @@ export async function deleteEvent(id: string) {
   });
   revalidatePath("/app/schedule");
 }
+
+// ----------------------------------------------------------------------
+// DOCUMENT (FILES) ACTIONS
+// ----------------------------------------------------------------------
+import { writeFile, unlink } from 'fs/promises';
+import { join } from 'path';
+import fs from 'fs';
+
+export async function uploadDocument(formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const file = formData.get("file") as File;
+  if (!file) throw new Error("No file uploaded");
+
+  const bytes = await file.arrayBuffer();
+  const buffer = Buffer.from(bytes);
+
+  // Generate safe filename
+  const filename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
+  const uploadDir = join(process.cwd(), 'public', 'uploads');
+  const filepath = join(uploadDir, filename);
+
+  // Ensure dir exists
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+
+  await writeFile(filepath, buffer);
+
+  let content = "";
+  if (file.type === "application/pdf") {
+    try {
+      const pdfParse = (await import('pdf-parse')).default;
+      const data = await pdfParse(buffer);
+      content = data.text;
+    } catch (e) {
+      console.error("PDF Parsing failed", e);
+    }
+  } else if (file.type.startsWith("text/")) {
+    content = buffer.toString('utf-8');
+  }
+
+  const doc = await prisma.document.create({
+    data: {
+      title: file.name,
+      fileUrl: `/uploads/${filename}`,
+      content: content,
+      userId: session.user.id
+    }
+  });
+
+  revalidatePath("/app/files");
+  return { success: true, document: doc };
+}
+
+export async function deleteDocument(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const doc = await prisma.document.findUnique({
+    where: { id, userId: session.user.id }
+  });
+
+  if (!doc) throw new Error("Not found");
+
+  if (doc.fileUrl) {
+    const filepath = join(process.cwd(), 'public', doc.fileUrl);
+    if (fs.existsSync(filepath)) {
+      await unlink(filepath);
+    }
+  }
+
+  await prisma.document.delete({
+    where: { id }
+  });
+
+  revalidatePath("/app/files");
+}
+
+// ----------------------------------------------------------------------
+// AI ACTIONS
+// ----------------------------------------------------------------------
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+export async function summarizeContent(content: string) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return "AI Summary requires GEMINI_API_KEY in environment variables.";
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Tolong buatkan ringkasan (summary) dalam bahasa Indonesia yang padat dan jelas dari teks atau catatan berikut:\n\n${content}`;
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (e) {
+    console.error("AI Summarize error", e);
+    return "Maaf, gagal membuat ringkasan. Silakan periksa koneksi atau coba lagi nanti.";
+  }
+}

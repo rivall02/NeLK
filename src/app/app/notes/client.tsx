@@ -20,13 +20,14 @@ interface Note {
   updatedAt: string;
 }
 
-import { createNote, updateNote, deleteNote as deleteNoteAction } from "@/lib/actions";
+import { createNote, updateNote, deleteNote as deleteNoteAction, summarizeContent } from "@/lib/actions";
 
 export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) {
   const [notes, setNotes] = useState(initialNotes);
   const [search, setSearch] = useState("");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [editorContent, setEditorContent] = useState("");
+  const [isSummarizing, setIsSummarizing] = useState(false);
 
   const filtered = notes.filter(
     (n) =>
@@ -72,6 +73,22 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
 
   async function saveNote(id: string, updates: { title?: string, content?: string }) {
     await updateNote(id, updates);
+  }
+
+  async function handleSummarize() {
+    if (!editorContent.trim()) return;
+    setIsSummarizing(true);
+    try {
+      const summary = await summarizeContent(editorContent);
+      const newContent = editorContent + "\n\n--- AI Summary ---\n" + summary;
+      setEditorContent(newContent);
+      await saveNote(selectedNote!.id, { content: newContent });
+    } catch (e) {
+      console.error(e);
+      alert("Failed to summarize.");
+    } finally {
+      setIsSummarizing(false);
+    }
   }
 
   return (
@@ -190,12 +207,13 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
                   <span>{selectedNote.updatedAt}</span>
                 </div>
                 <button 
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20 transition-colors text-xs font-semibold"
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${isSummarizing ? "bg-gray-200 text-gray-500" : "bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20"} transition-colors text-xs font-semibold`}
                   aria-label="AI Summarize"
-                  onClick={() => alert("AI Summarize action will be integrated here.")}
+                  onClick={handleSummarize}
+                  disabled={isSummarizing}
                 >
-                  <Sparkle weight="fill" size={14} />
-                  <span>Summarize</span>
+                  <Sparkle weight="fill" size={14} className={isSummarizing ? "animate-spin" : ""} />
+                  <span>{isSummarizing ? "Summarizing..." : "Summarize"}</span>
                 </button>
                 <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]" aria-label="Opsi lainnya">
                   <DotsThree size={18} weight="bold" />
