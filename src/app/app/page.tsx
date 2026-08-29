@@ -37,10 +37,21 @@ const recentNotes = [
 export default function DashboardPage() {
   const greeting = getGreeting();
   const [proactiveInsight, setProactiveInsight] = React.useState<string | null>(null);
+  const [userProfile, setUserProfile] = React.useState<{xp: number, level: number} | null>(null);
 
   React.useEffect(() => {
-    getProactiveInsight().then(insight => setProactiveInsight(insight));
+    import("@/lib/actions").then(actions => {
+      actions.getProactiveInsight().then(insight => setProactiveInsight(insight));
+      actions.getUserProfile().then(profile => {
+        if (profile) setUserProfile(profile);
+      });
+    });
   }, []);
+
+  const level = userProfile?.level || 1;
+  const xp = userProfile?.xp || 0;
+  const xpForNextLevel = 1000; // Simplified
+  const xpProgress = Math.min(100, Math.round((xp % xpForNextLevel) / xpForNextLevel * 100));
 
   return (
     <div className="space-y-8">
@@ -66,11 +77,11 @@ export default function DashboardPage() {
           </div>
           <div>
             <div className="flex justify-between items-center mb-1">
-              <span className="text-sm font-bold text-[var(--color-text)]">Level 12 Scholar</span>
-              <span className="text-xs font-semibold text-[var(--color-text-muted)]">450/1000 XP</span>
+              <span className="text-sm font-bold text-[var(--color-text)]">Level {level} Scholar</span>
+              <span className="text-xs font-semibold text-[var(--color-text-muted)]">{xp % xpForNextLevel}/{xpForNextLevel} XP</span>
             </div>
             <div className="w-32 h-2 bg-[var(--color-bg)] rounded-full overflow-hidden">
-              <div className="h-full bg-yellow-500 rounded-full" style={{ width: "45%" }} />
+              <div className="h-full bg-yellow-500 rounded-full transition-all duration-500" style={{ width: `${xpProgress}%` }} />
             </div>
           </div>
         </div>

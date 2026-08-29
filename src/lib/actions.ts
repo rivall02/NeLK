@@ -94,6 +94,11 @@ export async function updateTaskStatus(id: string, status: string) {
     where: { id, userId: session.user.id },
     data: { status },
   });
+
+  if (status === "done") {
+    await awardXP(10); // Award 10 XP for completing a task
+  }
+
   revalidatePath("/app/tasks");
   return task;
 }
@@ -539,4 +544,40 @@ export async function getProactiveInsight() {
     console.error("AI Insight error", e);
     return "Tetap semangat belajar hari ini!";
   }
+}
+
+// ----------------------------------------------------------------------
+// GAMIFICATION ACTIONS (V8)
+// ----------------------------------------------------------------------
+export async function awardXP(amount: number) {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { xp: true, level: true }
+  });
+  
+  if (!user) return null;
+
+  const newXp = user.xp + amount;
+  // Calculate level (1 level per 1000 XP)
+  const newLevel = Math.floor(newXp / 1000) + 1;
+
+  const updatedUser = await prisma.user.update({
+    where: { id: session.user.id },
+    data: { xp: newXp, level: newLevel }
+  });
+
+  return { xp: updatedUser.xp, level: updatedUser.level };
+}
+
+export async function getUserProfile() {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  return await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { xp: true, level: true }
+  });
 }
