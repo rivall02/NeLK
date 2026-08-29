@@ -277,3 +277,33 @@ export async function summarizeContent(content: string) {
     return "Maaf, gagal membuat ringkasan. Silakan periksa koneksi atau coba lagi nanti.";
   }
 }
+
+// ----------------------------------------------------------------------
+// COURSE ACTIONS
+// ----------------------------------------------------------------------
+export async function createCourse(title: string, description: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const course = await prisma.course.create({
+    data: {
+      title,
+      description,
+      userId: session.user.id
+    }
+  });
+
+  revalidatePath("/app/courses");
+  return course;
+}
+
+export async function deleteCourse(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  await prisma.course.delete({
+    where: { id, userId: session.user.id }
+  });
+
+  revalidatePath("/app/courses");
+}
