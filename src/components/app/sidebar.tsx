@@ -18,6 +18,7 @@ import {
   Command,
   MagnifyingGlass,
   GraduationCap,
+  UsersThree,
 } from "@phosphor-icons/react";
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
   { label: "Jadwal", href: "/app/schedule", icon: CalendarDots },
   { label: "Files", href: "/app/files", icon: Folder },
   { label: "Belajar", href: "/app/courses", icon: GraduationCap },
+  { label: "Komunitas", href: "/app/community", icon: UsersThree },
   { label: "AI", href: "/app/ai", icon: Brain },
   { label: "Pengaturan", href: "/app/settings", icon: Gear },
 ];

@@ -366,3 +366,34 @@ export async function autoScheduleStudy() {
   revalidatePath("/app/schedule");
   return { success: true, count: createdEvents.length };
 }
+
+// ----------------------------------------------------------------------
+// COMMUNITY ACTIONS (V5)
+// ----------------------------------------------------------------------
+export async function createCommunityPost(title: string, content: string, category: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const post = await prisma.communityPost.create({
+    data: {
+      title,
+      content,
+      category,
+      userId: session.user.id
+    }
+  });
+
+  revalidatePath("/app/community");
+  return post;
+}
+
+export async function deleteCommunityPost(id: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  await prisma.communityPost.delete({
+    where: { id, userId: session.user.id }
+  });
+
+  revalidatePath("/app/community");
+}
