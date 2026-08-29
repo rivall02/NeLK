@@ -567,6 +567,11 @@ export async function awardXP(amount: number) {
   const updatedUser = await prisma.user.update({
     where: { id: session.user.id },
     data: { xp: newXp, level: newLevel }
+  });
+
+  return { xp: updatedUser.xp, level: updatedUser.level };
+}
+
 // ----------------------------------------------------------------------
 // COMMUNITY ACTIONS (V5)
 // ----------------------------------------------------------------------
