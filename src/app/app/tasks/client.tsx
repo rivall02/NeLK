@@ -24,7 +24,7 @@ interface Task {
   subject?: string;
 }
 
-import { createTask, updateTaskStatus, deleteTask as deleteTaskAction } from "@/lib/actions";
+import { createTask, updateTaskStatus, deleteTask as deleteTaskAction, syncGoogleClassroom } from "@/lib/actions";
 
 const tabs = [
   { key: "inbox" as const, label: "Inbox", icon: CheckSquare },
@@ -43,6 +43,7 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
   const [activeTab, setActiveTab] = useState<"inbox" | "planned" | "completed">("inbox");
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const filtered = tasks.filter((t) => t.status === activeTab);
 
@@ -102,6 +103,22 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
     }
   }
 
+  async function handleSyncClassroom() {
+    setIsSyncing(true);
+    try {
+      const result = await syncGoogleClassroom();
+      if (result.success) {
+        alert(`Berhasil sinkronisasi ${result.count} tugas dari Google Classroom (Mock). Muat ulang halaman untuk melihat.`);
+        window.location.reload();
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Gagal sinkronisasi");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -112,14 +129,25 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
         className="flex items-center justify-between"
       >
         <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text)] md:text-3xl">Tugas</h1>
-        <motion.button
-          whileTap={{ scale: 0.93 }}
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-[var(--shadow-sm)] hover:bg-[var(--color-primary-hover)] active:scale-[0.97]"
-        >
-          <Plus size={16} weight="bold" />
-          Tugas Baru
-        </motion.button>
+        <div className="flex items-center gap-3">
+          <motion.button
+            whileTap={{ scale: 0.93 }}
+            onClick={handleSyncClassroom}
+            disabled={isSyncing}
+            className="flex items-center gap-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text)] shadow-[var(--shadow-sm)] hover:bg-[var(--color-surface-hover)] active:scale-[0.97] disabled:opacity-50"
+          >
+            <Clock size={16} weight="bold" className={isSyncing ? "animate-spin" : ""} />
+            {isSyncing ? "Syncing..." : "Sync Classroom"}
+          </motion.button>
+          <motion.button
+            whileTap={{ scale: 0.93 }}
+            onClick={() => setShowCreate(!showCreate)}
+            className="flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-[var(--shadow-sm)] hover:bg-[var(--color-primary-hover)] active:scale-[0.97]"
+          >
+            <Plus size={16} weight="bold" />
+            Tugas Baru
+          </motion.button>
+        </div>
       </motion.div>
 
       {/* Create Task Inline */}

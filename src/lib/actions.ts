@@ -307,3 +307,31 @@ export async function deleteCourse(id: string) {
 
   revalidatePath("/app/courses");
 }
+
+// ----------------------------------------------------------------------
+// CLASSROOM MOCK INTEGRATION (V3)
+// ----------------------------------------------------------------------
+export async function syncGoogleClassroom() {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  // Create 3 mock tasks
+  const mockTasks = [
+    { title: "Tugas Akhir Semester - Matematika", status: "inbox" },
+    { title: "Review Makalah Sejarah", status: "inbox" },
+    { title: "Baca Jurnal PBO Bab 4", status: "inbox" },
+  ];
+
+  for (const t of mockTasks) {
+    await prisma.task.create({
+      data: {
+        title: t.title,
+        status: t.status,
+        userId: session.user.id
+      }
+    });
+  }
+
+  revalidatePath("/app/tasks");
+  return { success: true, count: mockTasks.length };
+}
