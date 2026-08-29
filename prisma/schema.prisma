@@ -153,7 +153,9 @@ model Flashcard {
 // V5 Community Models
 model CommunityPost {
   id          String   @id @default(cuid())
+  title       String
   content     String
+  category    String   @default("Diskusi Umum")
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
@@ -162,9 +164,12 @@ model CommunityPost {
 // V6 Fitness Models
 model Activity {
   id          String   @id @default(cuid())
+  title       String
   type        String
-  duration    Int      // minutes
-  date        DateTime
+  duration    Int?     // minutes
+  calories    Int?     // kcal
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

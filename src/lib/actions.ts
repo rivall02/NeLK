@@ -210,7 +210,7 @@ export async function uploadDocument(formData: FormData) {
   let content = "";
   if (file.type === "application/pdf") {
     try {
-      const pdfParse = (await import('pdf-parse')).default;
+      const pdfParse = (await import('pdf-parse') as any).default || (await import('pdf-parse'));
       const data = await pdfParse(buffer);
       content = data.text;
     } catch (e) {

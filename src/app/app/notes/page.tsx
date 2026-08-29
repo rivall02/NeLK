@@ -23,11 +23,9 @@ export default async function NotesPage() {
   const mappedNotes = notes.map((n) => ({
     id: n.id,
     title: n.title,
-    content: n.content || "",
+    preview: n.content ? n.content.substring(0, 50) : "",
+    subject: "Umum",
     updatedAt: new Date(n.updatedAt).toLocaleString("id-ID"),
-    // Default values for fields not in DB yet
-    folder: "General",
-    tags: [],
   }));
 
   return <NotesClient initialNotes={mappedNotes} />;
