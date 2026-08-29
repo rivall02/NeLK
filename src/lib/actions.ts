@@ -572,6 +572,15 @@ export async function awardXP(amount: number) {
   return { xp: updatedUser.xp, level: updatedUser.level };
 }
 
+export async function getUserProfile() {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  return await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { xp: true, level: true }
+  });
+}
 
 // ----------------------------------------------------------------------
 // NOTIFICATION & BACKGROUND JOBS (V9)
