@@ -3,6 +3,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 import { authConfig } from "./auth.config";
 import CredentialsProvider from "next-auth/providers/credentials";
+import StravaProvider from "next-auth/providers/strava";
 import bcrypt from "bcryptjs";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -25,6 +26,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   providers: [
+    StravaProvider({
+      clientId: process.env.STRAVA_CLIENT_ID,
+      clientSecret: process.env.STRAVA_CLIENT_SECRET,
+      authorization: { params: { scope: "read,activity:read_all" } }
+    }),
     CredentialsProvider({
       name: "Credentials",
       credentials: {

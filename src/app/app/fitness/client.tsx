@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { Sneaker, ArrowClockwise, Heartbeat, Flame, Timer } from "@phosphor-icons/react";
 import { useState } from "react";
 import { syncStrava } from "@/lib/actions";
+import { signIn } from "next-auth/react";
 
 type Activity = {
   id: string;
@@ -14,16 +15,21 @@ type Activity = {
   createdAt: Date;
 };
 
-export default function FitnessClient({ initialActivities }: { initialActivities: Activity[] }) {
+export default function FitnessClient({ initialActivities, hasStrava }: { initialActivities: Activity[], hasStrava: boolean }) {
   const [activities, setActivities] = useState(initialActivities);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSync = async () => {
+    if (!hasStrava) {
+      await signIn("strava");
+      return;
+    }
+
     setIsSyncing(true);
     try {
       const result = await syncStrava();
       if (result.success) {
-        alert(`Berhasil sync ${result.count} aktivitas dari Strava (Mock). Refresh halaman untuk melihat.`);
+        alert(`Berhasil sync ${result.count} aktivitas dari Strava. Refresh halaman untuk melihat.`);
         window.location.reload();
       }
     } catch (e) {
@@ -65,7 +71,7 @@ export default function FitnessClient({ initialActivities }: { initialActivities
           className="flex items-center gap-2 px-5 py-2.5 bg-[#FC4C02] text-white rounded-xl hover:bg-[#e04302] transition-colors font-medium shadow-sm disabled:opacity-50"
         >
           <ArrowClockwise weight="bold" className={isSyncing ? "animate-spin" : ""} />
-          {isSyncing ? "Syncing..." : "Sync Strava"}
+          {isSyncing ? "Syncing..." : (hasStrava ? "Sync Strava" : "Connect Strava")}
         </motion.button>
       </header>
 

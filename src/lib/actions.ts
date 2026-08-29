@@ -405,26 +405,60 @@ export async function syncStrava() {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  // Create mock Strava activities
-  const mockActivities = [
-    { title: "Morning Run", type: "Run", duration: 45, calories: 420 },
-    { title: "Evening Walk", type: "Walk", duration: 30, calories: 150 },
-  ];
+  const stravaAccount = await prisma.account.findFirst({
+    where: { userId: session.user.id, provider: "strava" }
+  });
 
-  for (const act of mockActivities) {
-    await prisma.activity.create({
-      data: {
-        title: act.title,
-        type: act.type,
-        duration: act.duration,
-        calories: act.calories,
-        userId: session.user.id
-      }
-    });
+  if (!stravaAccount || !stravaAccount.access_token) {
+    throw new Error("Strava not connected");
   }
 
-  revalidatePath("/app/fitness");
-  return { success: true, count: mockActivities.length };
+  try {
+    const res = await fetch("https://www.strava.com/api/v3/athlete/activities?per_page=30", {
+      headers: {
+        Authorization: `Bearer ${stravaAccount.access_token}`
+      }
+    });
+
+    if (!res.ok) {
+      console.error("Strava error", await res.text());
+      throw new Error("Failed to fetch from Strava API");
+    }
+
+    const activities = await res.json();
+    let newCount = 0;
+
+    for (const act of activities) {
+      // Prevent duplicates by checking name and date
+      const existing = await prisma.activity.findFirst({
+        where: {
+          userId: session.user.id,
+          title: act.name,
+          date: new Date(act.start_date)
+        }
+      });
+
+      if (!existing) {
+        await prisma.activity.create({
+          data: {
+            title: act.name,
+            type: act.type,
+            duration: Math.round(act.moving_time / 60), // moving_time is in seconds
+            calories: act.kilojoules ? Math.round(act.kilojoules * 0.239006) : 0, // rough conversion kJ to kcal if calories not present directly
+            date: new Date(act.start_date),
+            userId: session.user.id
+          }
+        });
+        newCount++;
+      }
+    }
+
+    revalidatePath("/app/fitness");
+    return { success: true, count: newCount };
+  } catch (error) {
+    console.error("Error syncing Strava", error);
+    return { success: false, count: 0 };
+  }
 }
 
 // ----------------------------------------------------------------------

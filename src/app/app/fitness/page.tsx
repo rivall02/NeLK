@@ -18,5 +18,9 @@ export default async function FitnessPage() {
     orderBy: { createdAt: "desc" }
   });
 
-  return <FitnessClient initialActivities={activities} />;
+  const stravaAccount = await prisma.account.findFirst({
+    where: { userId: session.user.id, provider: "strava" }
+  });
+
+  return <FitnessClient initialActivities={activities} hasStrava={!!stravaAccount} />;
 }
