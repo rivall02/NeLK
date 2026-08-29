@@ -1,4 +1,5 @@
 "use client";
+import React from "react";
 
 import { motion } from "motion/react";
 import {
@@ -13,6 +14,7 @@ import {
   Trophy,
 } from "@phosphor-icons/react";
 import Link from "next/link";
+import { getProactiveInsight } from "@/lib/actions";
 
 const upcomingTasks = [
   { title: "Tugas Basis Data — ERD Perpustakaan", due: "Besok, 23:59", priority: "high" },
@@ -34,6 +36,11 @@ const recentNotes = [
 
 export default function DashboardPage() {
   const greeting = getGreeting();
+  const [proactiveInsight, setProactiveInsight] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    getProactiveInsight().then(insight => setProactiveInsight(insight));
+  }, []);
 
   return (
     <div className="space-y-8">
@@ -251,9 +258,7 @@ export default function DashboardPage() {
             <h2 className="text-base font-semibold text-[var(--color-text)]">Insight AI</h2>
           </div>
           <p className="text-sm leading-relaxed text-[var(--color-text-secondary)]">
-            Topik <strong className="text-[var(--color-text)]">Normalisasi 2NF</strong> perlu
-            perhatian ekstra. Hasil kuis terakhir menunjukkan akurasi 65%.
-            Coba review catatan dan minta AI untuk buatkan latihan soal.
+            {proactiveInsight || "Sedang menganalisis catatan dan tugasmu..."}
           </p>
           <Link
             href="/app/ai"

@@ -465,17 +465,78 @@ export async function syncStrava() {
 // AI CHAT ACTIONS (V7)
 // ----------------------------------------------------------------------
 export async function askAI(query: string) {
+  const session = await auth();
+  if (!session?.user?.id) return "Maaf, Anda harus login untuk menggunakan AI.";
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return "AI Chat requires GEMINI_API_KEY in environment variables.";
 
   try {
+    // 1. Context Retrieval (RAG)
+    const [tasks, notes] = await Promise.all([
+      prisma.task.findMany({
+        where: { userId: session.user.id },
+        select: { title: true, status: true, dueDate: true }
+      }),
+      prisma.note.findMany({
+        where: { userId: session.user.id },
+        select: { title: true, content: true },
+        take: 10,
+        orderBy: { updatedAt: "desc" }
+      })
+    ]);
+
+    const contextText = `
+Data Tugas User:
+${tasks.map(t => `- ${t.title} (Status: ${t.status}, Due: ${t.dueDate ? t.dueDate.toLocaleDateString() : 'None'})`).join('\n')}
+
+Data Catatan Terbaru User:
+${notes.map(n => `Judul: ${n.title}\nKonten Singkat: ${n.content?.substring(0, 200)}...`).join('\n\n')}
+`;
+
+    // 2. Generate
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const prompt = `Sebagai asisten AI NeLK (Personal Academic Assistant), jawablah pertanyaan berikut dengan singkat, informatif, dan membantu:\n\nUser: ${query}`;
+    const prompt = `Sebagai asisten AI NeLK (Personal Academic Assistant), jawablah pertanyaan berikut dengan singkat, informatif, dan membantu.
+    
+Berikut adalah konteks data pengguna yang relevan:
+${contextText}
+
+Pertanyaan User: ${query}`;
+    
     const result = await model.generateContent(prompt);
     return result.response.text();
   } catch (e) {
     console.error("AI Chat error", e);
     return "Maaf, gagal memproses permintaan. Silakan periksa koneksi atau coba lagi nanti.";
+  }
+}
+
+export async function getProactiveInsight() {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return "Insight AI belum dikonfigurasi.";
+
+  try {
+    const tasks = await prisma.task.findMany({
+      where: { userId: session.user.id, status: { not: "done" } },
+      select: { title: true, dueDate: true }
+    });
+
+    if (tasks.length === 0) return "Semua tugas sudah selesai! Kamu bisa bersantai atau mulai mempelajari hal baru.";
+
+    const contextText = tasks.map(t => `- ${t.title} (Due: ${t.dueDate ? t.dueDate.toLocaleDateString() : 'None'})`).join('\n');
+    
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Berikan 1 kalimat singkat (maksimal 150 karakter) berupa insight proaktif atau peringatan halus untuk memotivasi user menyelesaikan tugas-tugas ini:\n${contextText}`;
+    
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (e) {
+    console.error("AI Insight error", e);
+    return "Tetap semangat belajar hari ini!";
   }
 }
