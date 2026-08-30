@@ -2,7 +2,16 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { MagnifyingGlass, FileText, CalendarBlank, CheckSquare, Sparkle, Command, X } from "@phosphor-icons/react";
+import {
+  MagnifyingGlass,
+  FileText,
+  CalendarBlank,
+  CheckSquare,
+  Sparkle,
+  Command,
+  X,
+  PlusCircle,
+} from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 
 export function CommandCenter() {
@@ -11,14 +20,14 @@ export function CommandCenter() {
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  // Handle Ctrl+K / Cmd+K
+  // Handle Ctrl+K / Cmd+K and Escape
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setIsOpen((open) => !open);
       }
-      
+
       if (e.key === "Escape") {
         setIsOpen(false);
       }
@@ -40,24 +49,24 @@ export function CommandCenter() {
   }, [isOpen]);
 
   const navigation = [
-    { name: "Dashboard", href: "/app", icon: <Command weight="bold" /> },
-    { name: "Notes", href: "/app/notes", icon: <FileText weight="bold" /> },
-    { name: "Tasks", href: "/app/tasks", icon: <CheckSquare weight="bold" /> },
-    { name: "Schedule", href: "/app/schedule", icon: <CalendarBlank weight="bold" /> },
-    { name: "Ask AI", href: "/app/ai", icon: <Sparkle weight="bold" /> },
+    { name: "Beranda Dashboard", href: "/app", icon: <Command weight="bold" /> },
+    { name: "Catatan Kuliah", href: "/app/notes", icon: <FileText weight="bold" /> },
+    { name: "Daftar Tugas", href: "/app/tasks", icon: <CheckSquare weight="bold" /> },
+    { name: "Jadwal & Kalender", href: "/app/schedule", icon: <CalendarBlank weight="bold" /> },
+    { name: "Tanya AI NeLK", href: "/app/ai", icon: <Sparkle weight="bold" /> },
   ];
 
   const actions = [
-    { name: "Create new note", icon: <FileText /> },
-    { name: "Add new task", icon: <CheckSquare /> },
-    { name: "Schedule event", icon: <CalendarBlank /> },
+    { name: "Buat Catatan Baru", href: "/app/notes", icon: <PlusCircle size={18} /> },
+    { name: "Tambah Tugas Baru", href: "/app/tasks", icon: <PlusCircle size={18} /> },
+    { name: "Tambah Jadwal Baru", href: "/app/schedule", icon: <PlusCircle size={18} /> },
   ];
 
-  const filteredNavigation = navigation.filter(item => 
+  const filteredNavigation = navigation.filter((item) =>
     item.name.toLowerCase().includes(query.toLowerCase())
   );
-  
-  const filteredActions = actions.filter(item => 
+
+  const filteredActions = actions.filter((item) =>
     item.name.toLowerCase().includes(query.toLowerCase())
   );
 
@@ -72,72 +81,74 @@ export function CommandCenter() {
         {isOpen && (
           <>
             {/* Backdrop */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsOpen(false)}
-              className="fixed inset-0 bg-black/20 dark:bg-black/60 backdrop-blur-sm z-[100]"
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100]"
             />
 
             {/* Modal */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.95, y: -20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: -20 }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="fixed top-[10%] left-1/2 -translate-x-1/2 w-full max-w-lg bg-nelk-surface-light dark:bg-nelk-surface-dark rounded-2xl shadow-2xl border border-black/10 dark:border-white/10 overflow-hidden z-[101]"
+              className="fixed top-[12%] left-1/2 -translate-x-1/2 w-full max-w-lg bg-[var(--color-surface)] rounded-3xl shadow-2xl border border-[var(--color-border)] overflow-hidden z-[101]"
             >
-              <div className="flex items-center gap-3 px-4 py-4 border-b border-black/5 dark:border-white/5">
-                <MagnifyingGlass className="text-nelk-text-light/50 dark:text-nelk-text-dark/50 text-xl" />
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--color-border)]">
+                <MagnifyingGlass className="text-[var(--color-text-muted)] text-xl" />
                 <input
                   ref={inputRef}
                   type="text"
-                  placeholder="Search commands, notes, tasks..."
+                  placeholder="Cari menu, perintah, atau aksi cepat..."
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  className="flex-1 bg-transparent border-none outline-none text-base placeholder:text-nelk-text-light/40 dark:placeholder:text-nelk-text-dark/40"
+                  className="flex-1 bg-transparent border-none outline-none text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)]"
                 />
-                <button 
+                <button
                   onClick={() => setIsOpen(false)}
-                  className="p-1 rounded-md text-nelk-text-light/50 dark:text-nelk-text-dark/50 hover:bg-black/5 dark:hover:bg-white/10"
+                  className="p-1 rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"
+                  aria-label="Tutup"
                 >
-                  <X weight="bold" />
+                  <X weight="bold" size={16} />
                 </button>
               </div>
 
-              <div className="max-h-[60vh] overflow-y-auto p-2">
-                {filteredNavigation.length > 0 && (
-                  <div className="mb-4">
-                    <div className="px-3 mb-2 text-xs font-semibold text-nelk-text-light/50 dark:text-nelk-text-dark/50 uppercase tracking-wider">
-                      Navigation
+              <div className="max-h-[55vh] overflow-y-auto p-3 space-y-3">
+                {/* Actions */}
+                {filteredActions.length > 0 && (
+                  <div>
+                    <div className="px-3 mb-1 text-[11px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                      Aksi Cepat
                     </div>
-                    {filteredNavigation.map((item) => (
+                    {filteredActions.map((item) => (
                       <button
                         key={item.name}
                         onClick={() => handleNavigate(item.href)}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left"
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--color-surface-hover)] transition-colors text-left text-sm text-[var(--color-text)] font-medium"
                       >
-                        <div className="w-8 h-8 rounded-lg bg-nelk-primary/10 text-nelk-primary flex items-center justify-center shrink-0">
-                          {item.icon}
-                        </div>
-                        <span className="font-medium">{item.name}</span>
+                        <span className="text-[var(--color-primary)]">{item.icon}</span>
+                        <span>{item.name}</span>
                       </button>
                     ))}
                   </div>
                 )}
 
-                {filteredActions.length > 0 && (
+                {/* Navigation */}
+                {filteredNavigation.length > 0 && (
                   <div>
-                    <div className="px-3 mb-2 text-xs font-semibold text-nelk-text-light/50 dark:text-nelk-text-dark/50 uppercase tracking-wider">
-                      Quick Actions
+                    <div className="px-3 mb-1 text-[11px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                      Navigasi Halaman
                     </div>
-                    {filteredActions.map((item) => (
+                    {filteredNavigation.map((item) => (
                       <button
                         key={item.name}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left"
+                        onClick={() => handleNavigate(item.href)}
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--color-surface-hover)] transition-colors text-left text-sm text-[var(--color-text)] font-medium"
                       >
-                        <div className="text-nelk-text-light/50 dark:text-nelk-text-dark/50 shrink-0">
+                        <div className="w-7 h-7 rounded-lg bg-[var(--color-primary-light)] text-[var(--color-primary)] flex items-center justify-center shrink-0 text-xs">
                           {item.icon}
                         </div>
                         <span>{item.name}</span>
@@ -147,22 +158,25 @@ export function CommandCenter() {
                 )}
 
                 {filteredNavigation.length === 0 && filteredActions.length === 0 && (
-                  <div className="py-12 text-center text-nelk-text-light/50 dark:text-nelk-text-dark/50">
-                    <p>No results found for "{query}"</p>
+                  <div className="py-12 text-center text-xs text-[var(--color-text-muted)]">
+                    Tidak ditemukan hasil untuk "{query}"
                   </div>
                 )}
               </div>
-              
-              <div className="px-4 py-3 bg-black/5 dark:bg-white/5 text-xs text-nelk-text-light/50 dark:text-nelk-text-dark/50 flex items-center justify-between border-t border-black/5 dark:border-white/5">
-                <div className="flex items-center gap-4">
+
+              <div className="px-4 py-2.5 bg-[var(--color-bg)] text-[11px] text-[var(--color-text-muted)] flex items-center justify-between border-t border-[var(--color-border)]">
+                <div className="flex items-center gap-3">
                   <span className="flex items-center gap-1">
-                    <kbd className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-sans border border-black/10 dark:border-white/10">↑</kbd>
-                    <kbd className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-sans border border-black/10 dark:border-white/10">↓</kbd>
-                    to navigate
+                    <kbd className="px-1.5 py-0.5 rounded bg-[var(--color-surface)] border border-[var(--color-border)] text-[10px] font-sans">
+                      Esc
+                    </kbd>
+                    tutup
                   </span>
                   <span className="flex items-center gap-1">
-                    <kbd className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-sans border border-black/10 dark:border-white/10">↵</kbd>
-                    to select
+                    <kbd className="px-1.5 py-0.5 rounded bg-[var(--color-surface)] border border-[var(--color-border)] text-[10px] font-sans">
+                      ↵
+                    </kbd>
+                    buka
                   </span>
                 </div>
               </div>

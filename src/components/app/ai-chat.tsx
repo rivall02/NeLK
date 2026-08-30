@@ -2,31 +2,51 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Sparkle, X, PaperPlaneRight, StopCircle } from "@phosphor-icons/react";
+import { Sparkle, X, PaperPlaneRight, SpinnerGap } from "@phosphor-icons/react";
+import { askAI } from "@/lib/actions";
+import { toast } from "sonner";
+
+interface Message {
+  role: "assistant" | "user";
+  content: string;
+}
 
 export function AIChat() {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [messages, setMessages] = useState([
-    { role: "assistant", content: "Hi there! I'm your NeLK assistant. Need help organizing your study schedule or generating ideas?" }
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: "assistant",
+      content:
+        "Halo! Saya asisten akademik NeLK. Ada yang bisa saya bantu terkait tugas, ringkasan materi, atau jadwal belajarmu?",
+    },
   ]);
   const [isTyping, setIsTyping] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim()) return;
+    const cleanQuery = query.trim();
+    if (!cleanQuery || isTyping) return;
 
-    // Add user message
-    const userMsg = query;
-    setMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setMessages((prev) => [...prev, { role: "user", content: cleanQuery }]);
     setQuery("");
     setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      setMessages(prev => [...prev, { role: "assistant", content: `I can help with that! Here's a suggestion based on your prompt: "${userMsg}". (This is a simulated response for MVP V0)` }]);
+    try {
+      const responseText = await askAI(cleanQuery);
+      setMessages((prev) => [...prev, { role: "assistant", content: responseText }]);
+    } catch (err: any) {
+      toast.error(err.message || "Gagal menghubungi AI.");
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Maaf, terjadi kendala saat memproses pertanyaanmu. Silakan coba lagi.",
+        },
+      ]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -41,9 +61,10 @@ export function AIChat() {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setIsOpen(true)}
-              className="w-14 h-14 bg-[#8B5CF6] text-white rounded-full flex items-center justify-center shadow-lg shadow-[#8B5CF6]/30 hover:shadow-xl hover:shadow-[#8B5CF6]/40 transition-shadow group"
+              className="w-14 h-14 bg-[#8B5CF6] text-white rounded-full flex items-center justify-center shadow-lg shadow-[#8B5CF6]/30 hover:shadow-xl hover:shadow-[#8B5CF6]/40 transition-all group"
+              aria-label="Buka Chat AI"
             >
-              <Sparkle weight="fill" className="text-2xl group-hover:animate-spin-slow" />
+              <Sparkle weight="fill" className="text-2xl group-hover:rotate-12 transition-transform" />
             </motion.button>
           )}
         </AnimatePresence>
@@ -55,32 +76,33 @@ export function AIChat() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.95, transition: { duration: 0.2 } }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="absolute bottom-0 right-0 w-[calc(100vw-2rem)] md:w-[380px] h-[500px] max-h-[calc(100vh-6rem)] bg-nelk-surface-light dark:bg-nelk-surface-dark rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 flex flex-col overflow-hidden origin-bottom-right"
+              className="absolute bottom-0 right-0 w-[calc(100vw-2rem)] md:w-[400px] h-[520px] max-h-[calc(100vh-6rem)] bg-[var(--color-surface)] rounded-3xl shadow-2xl border border-[var(--color-border)] flex flex-col overflow-hidden origin-bottom-right"
             >
               {/* Header */}
-              <div className="px-5 py-4 border-b border-black/5 dark:border-white/5 flex justify-between items-center bg-[#8B5CF6]/5">
-                <div className="flex items-center gap-2">
+              <div className="px-5 py-4 border-b border-[var(--color-border)] flex justify-between items-center bg-[#8B5CF6]/5">
+                <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-[#8B5CF6] text-white flex items-center justify-center">
-                    <Sparkle weight="fill" />
+                    <Sparkle weight="fill" size={16} />
                   </div>
                   <div>
-                    <h3 className="font-bold text-sm">NeLK AI</h3>
-                    <div className="flex items-center gap-1.5 text-xs text-nelk-text-light/60 dark:text-nelk-text-dark/60">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                    <h3 className="font-bold text-sm text-[var(--color-text)]">NeLK AI Assistant</h3>
+                    <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
+                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                       Online
                     </div>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setIsOpen(false)}
-                  className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                  className="p-1.5 rounded-full hover:bg-[var(--color-surface-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+                  aria-label="Tutup Chat"
                 >
-                  <X weight="bold" />
+                  <X weight="bold" size={18} />
                 </button>
               </div>
 
               {/* Chat Area */}
-              <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4 scroll-smooth">
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 scroll-smooth">
                 {messages.map((msg, i) => (
                   <motion.div
                     key={i}
@@ -88,62 +110,48 @@ export function AIChat() {
                     animate={{ opacity: 1, y: 0 }}
                     className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                   >
-                    <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
-                      msg.role === "user" 
-                        ? "bg-[#8B5CF6] text-white rounded-tr-sm" 
-                        : "bg-black/5 dark:bg-white/10 rounded-tl-sm"
-                    }`}>
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap ${
+                        msg.role === "user"
+                          ? "bg-[var(--color-primary)] text-white rounded-tr-sm"
+                          : "bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text)] rounded-tl-sm"
+                      }`}
+                    >
                       {msg.content}
                     </div>
                   </motion.div>
                 ))}
-                
+
                 {isTyping && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex justify-start"
-                  >
-                    <div className="bg-black/5 dark:bg-white/10 rounded-2xl rounded-tl-sm px-4 py-3 flex gap-1 items-center">
-                      <motion.div className="w-1.5 h-1.5 bg-nelk-text-light/40 dark:bg-nelk-text-dark/40 rounded-full" animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0 }} />
-                      <motion.div className="w-1.5 h-1.5 bg-nelk-text-light/40 dark:bg-nelk-text-dark/40 rounded-full" animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.1 }} />
-                      <motion.div className="w-1.5 h-1.5 bg-nelk-text-light/40 dark:bg-nelk-text-dark/40 rounded-full" animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }} />
+                  <div className="flex justify-start">
+                    <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl rounded-tl-sm px-4 py-3 flex gap-1.5 items-center text-xs text-[var(--color-text-muted)]">
+                      <SpinnerGap size={16} className="animate-spin text-[#8B5CF6]" />
+                      <span>NeLK AI sedang berpikir...</span>
                     </div>
-                  </motion.div>
+                  </div>
                 )}
               </div>
 
               {/* Input Area */}
-              <div className="p-4 border-t border-black/5 dark:border-white/5 bg-nelk-surface-light dark:bg-nelk-surface-dark">
-                <form onSubmit={handleSubmit} className="flex items-end gap-2">
-                  <div className="flex-1 bg-black/5 dark:bg-white/5 rounded-2xl rounded-br-sm border border-black/5 dark:border-white/5 focus-within:border-[#8B5CF6]/50 transition-colors px-4 py-1.5">
-                    <textarea 
-                      placeholder="Ask me anything..."
-                      rows={1}
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSubmit(e);
-                        }
-                      }}
-                      className="w-full bg-transparent border-none outline-none resize-none py-2 text-sm max-h-32 min-h-[40px] scrollbar-hide"
-                    />
-                  </div>
+              <div className="p-3 border-t border-[var(--color-border)] bg-[var(--color-surface)]">
+                <form onSubmit={handleSubmit} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Tanya tugas, jadwal, atau materi..."
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    disabled={isTyping}
+                    className="flex-1 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[#8B5CF6]"
+                  />
                   <button
                     type="submit"
-                    disabled={!query.trim()}
-                    className="w-12 h-12 rounded-2xl rounded-bl-sm bg-[#8B5CF6] text-white flex items-center justify-center shrink-0 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#7c4dff] transition-colors"
+                    disabled={!query.trim() || isTyping}
+                    className="w-10 h-10 rounded-xl bg-[#8B5CF6] text-white flex items-center justify-center shrink-0 disabled:opacity-50 hover:bg-[#7c4dff] transition-colors"
+                    aria-label="Kirim Pesan"
                   >
-                    {isTyping ? <StopCircle weight="fill" className="text-xl" /> : <PaperPlaneRight weight="fill" className="text-xl" />}
+                    <PaperPlaneRight weight="fill" size={16} />
                   </button>
                 </form>
-                <div className="text-center mt-2">
-                  <p className="text-[10px] text-nelk-text-light/40 dark:text-nelk-text-dark/40">
-                    AI can make mistakes. Consider verifying important information.
-                  </p>
-                </div>
               </div>
             </motion.div>
           )}

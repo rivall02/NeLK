@@ -1,237 +1,461 @@
 "use server";
 
-import { signIn, signOut } from "@/auth";
+import { signIn, signOut, auth } from "@/auth";
 import { AuthError } from "next-auth";
 import { prisma } from "./prisma";
 import bcrypt from "bcryptjs";
+import { revalidatePath } from "next/cache";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import {
+  validateTaskInput,
+  validateNoteInput,
+  validateEventInput,
+  validateAuthInput,
+  validateCommunityPostInput,
+  validateProfileInput,
+  normalizeTaskStatus,
+} from "./validations";
+import { storageService } from "./storage";
+import { enforceRateLimit } from "./rate-limit";
+import { env, hasGeminiConfigured } from "./env";
+import { logger } from "./logger";
 
+// Helper to require active user session
+async function requireAuth(): Promise<{ id: string; name?: string | null; email?: string | null }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    throw new Error("Unauthorized: Anda harus login untuk melakukan aksi ini.");
+  }
+  return {
+    id: session.user.id,
+    name: session.user.name,
+    email: session.user.email,
+  };
+}
+
+// ----------------------------------------------------------------------
+// AUTH ACTIONS
+// ----------------------------------------------------------------------
 
 export async function authenticate(
   prevState: string | undefined,
-  formData: FormData,
+  formData: FormData
 ) {
   try {
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
+
+    validateAuthInput({ email, password });
+    enforceRateLimit(`auth:${email}`, 10, 60 * 1000, "Login");
+
     await signIn("credentials", formData);
   } catch (error) {
     if (error instanceof AuthError) {
       switch (error.type) {
         case "CredentialsSignin":
-          return "Invalid credentials.";
+          return "Email atau password salah.";
         default:
-          return "Something went wrong.";
+          return "Terjadi kesalahan saat masuk.";
       }
+    }
+    if (error instanceof Error) {
+      return error.message;
     }
     throw error;
   }
 }
 
 export async function logout() {
-  await signOut();
+  await signOut({ redirectTo: "/login" });
 }
 
 export async function registerUser(formData: FormData) {
-  const name = formData.get("name") as string;
-  const email = formData.get("email") as string;
-  const password = formData.get("password") as string;
-
-  if (!email || !password) {
-    return "Missing required fields";
-  }
-
   try {
+    const name = (formData.get("name") as string) || "Pengguna";
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
+
+    const validated = validateAuthInput({ email, password, name });
+    enforceRateLimit(`register:${validated.email}`, 5, 60 * 1000, "Registrasi");
+
     const existingUser = await prisma.user.findUnique({
-      where: { email }
+      where: { email: validated.email },
     });
+
     if (existingUser) {
-      return "Email already exists";
+      return "Email sudah terdaftar. Silakan login.";
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(validated.password, 10);
     await prisma.user.create({
       data: {
-        name,
-        email,
+        name: validated.name,
+        email: validated.email,
         password: hashedPassword,
+        xp: 0,
+        level: 1,
+        role: "USER",
+        subscriptionPlan: "FREE",
       },
     });
-    
-    // Automatically log in after registration
-    await signIn("credentials", { email, password, redirect: false });
+
+    logger.info("New user registered", { email: validated.email });
+
+    // Automatically sign in after registration
+    await signIn("credentials", {
+      email: validated.email,
+      password: validated.password,
+      redirect: false,
+    });
     return "Success";
   } catch (error) {
-    console.error("Failed to register:", error);
-    return "Failed to register";
+    logger.error("Failed to register user", error);
+    if (error instanceof Error) return error.message;
+    return "Gagal mendaftarkan akun. Silakan coba lagi.";
   }
 }
 
 // ----------------------------------------------------------------------
-// TASK ACTIONS
+// TASK ACTIONS (P0 & P1)
 // ----------------------------------------------------------------------
-import { revalidatePath } from "next/cache";
-import { auth } from "@/auth";
 
-export async function createTask(data: { title: string; priority: string; status: string }) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+export async function createTask(data: {
+  title: string;
+  priority?: string;
+  status?: string;
+  dueDate?: Date | string;
+  description?: string;
+  subject?: string;
+}) {
+  const user = await requireAuth();
+  const validated = validateTaskInput(data);
+  enforceRateLimit(`task:create:${user.id}`, 60, 60 * 1000, "Pembuatan Tugas");
 
   const task = await prisma.task.create({
     data: {
-      title: data.title,
-      status: data.status,
-      userId: session.user.id,
-      // Note: priority and subject aren't in prisma yet, but we'll adapt or use description
+      title: validated.title,
+      status: validated.status,
+      priority: validated.priority,
+      dueDate: validated.dueDate,
+      description: validated.description,
+      subject: validated.subject,
+      userId: user.id,
     },
   });
+
   revalidatePath("/app/tasks");
+  revalidatePath("/app");
   return task;
 }
 
-export async function updateTaskStatus(id: string, status: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+export async function updateTaskStatus(id: string, rawStatus: string) {
+  const user = await requireAuth();
+  const nextStatus = normalizeTaskStatus(rawStatus);
 
-  const task = await prisma.task.update({
-    where: { id, userId: session.user.id },
-    data: { status },
+  // Perform atomic update with status checking to award XP exactly once
+  const result = await prisma.$transaction(async (tx) => {
+    const existing = await tx.task.findUnique({
+      where: { id, userId: user.id },
+    });
+
+    if (!existing) {
+      throw new Error("Tugas tidak ditemukan.");
+    }
+
+    const updatedTask = await tx.task.update({
+      where: { id, userId: user.id },
+      data: { status: nextStatus },
+    });
+
+    // Award XP ONLY if task transitioned from non-DONE to DONE
+    const wasDone = existing.status === "DONE" || existing.status === "done" || existing.status === "completed";
+    const isNowDone = nextStatus === "DONE";
+
+    let xpAwarded = 0;
+    if (!wasDone && isNowDone) {
+      xpAwarded = 15; // 15 XP per completed task
+      const updatedUser = await tx.user.update({
+        where: { id: user.id },
+        data: {
+          xp: { increment: xpAwarded },
+        },
+      });
+
+      // Recalculate level on server
+      const newLevel = Math.floor(updatedUser.xp / 1000) + 1;
+      if (newLevel !== updatedUser.level) {
+        await tx.user.update({
+          where: { id: user.id },
+          data: { level: newLevel },
+        });
+      }
+    }
+
+    return { task: updatedTask, xpAwarded };
   });
 
-  if (status === "done") {
-    await awardXP(10); // Award 10 XP for completing a task
+  revalidatePath("/app/tasks");
+  revalidatePath("/app");
+  revalidatePath("/app/gamification");
+  return result.task;
+}
+
+export async function updateTask(
+  id: string,
+  data: {
+    title?: string;
+    priority?: string;
+    status?: string;
+    dueDate?: Date | string;
+    description?: string;
+    subject?: string;
   }
+) {
+  const user = await requireAuth();
+  const validated = validateTaskInput(data);
+
+  const task = await prisma.task.update({
+    where: { id, userId: user.id },
+    data: {
+      title: validated.title,
+      priority: validated.priority,
+      status: validated.status,
+      dueDate: validated.dueDate,
+      description: validated.description,
+      subject: validated.subject,
+    },
+  });
 
   revalidatePath("/app/tasks");
+  revalidatePath("/app");
   return task;
 }
 
 export async function deleteTask(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  const user = await requireAuth();
 
   await prisma.task.delete({
-    where: { id, userId: session.user.id },
+    where: { id, userId: user.id },
   });
+
   revalidatePath("/app/tasks");
+  revalidatePath("/app");
 }
 
 // ----------------------------------------------------------------------
-// NOTE ACTIONS
+// NOTE ACTIONS (P1 #5)
 // ----------------------------------------------------------------------
+
 export async function createNote(data: { title: string; content?: string }) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  const user = await requireAuth();
+  const validated = validateNoteInput(data);
 
   const note = await prisma.note.create({
     data: {
-      title: data.title,
-      content: data.content || "",
-      userId: session.user.id,
+      title: validated.title,
+      content: validated.content,
+      userId: user.id,
     },
   });
+
   revalidatePath("/app/notes");
+  revalidatePath("/app");
   return note;
 }
 
-export async function updateNote(id: string, data: { title?: string; content?: string }) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+export async function updateNote(
+  id: string,
+  data: { title?: string; content?: string }
+) {
+  const user = await requireAuth();
+  const validated = validateNoteInput(data);
 
   const note = await prisma.note.update({
-    where: { id, userId: session.user.id },
-    data,
+    where: { id, userId: user.id },
+    data: {
+      title: validated.title,
+      content: validated.content,
+    },
   });
+
   revalidatePath("/app/notes");
+  revalidatePath("/app");
   return note;
 }
 
 export async function deleteNote(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  const user = await requireAuth();
 
   await prisma.note.delete({
-    where: { id, userId: session.user.id },
+    where: { id, userId: user.id },
   });
+
   revalidatePath("/app/notes");
+  revalidatePath("/app");
 }
 
 // ----------------------------------------------------------------------
-// EVENT (SCHEDULE) ACTIONS
+// EVENT & SCHEDULE ACTIONS (P1 #6)
 // ----------------------------------------------------------------------
-export async function createEvent(data: { title: string; date: Date; startTime?: string; endTime?: string }) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+
+export async function createEvent(data: {
+  title: string;
+  date: Date | string;
+  startTime?: string;
+  endTime?: string;
+  description?: string;
+}) {
+  const user = await requireAuth();
+  const validated = validateEventInput(data);
 
   const event = await prisma.event.create({
     data: {
-      title: data.title,
-      date: data.date,
-      startTime: data.startTime,
-      endTime: data.endTime,
-      userId: session.user.id,
+      title: validated.title,
+      date: validated.date,
+      startTime: validated.startTime,
+      endTime: validated.endTime,
+      description: validated.description,
+      userId: user.id,
     },
   });
+
   revalidatePath("/app/schedule");
+  revalidatePath("/app");
   return event;
 }
 
 export async function deleteEvent(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  const user = await requireAuth();
 
   await prisma.event.delete({
-    where: { id, userId: session.user.id },
+    where: { id, userId: user.id },
   });
+
   revalidatePath("/app/schedule");
+  revalidatePath("/app");
+}
+
+export async function autoScheduleStudy(targetDateStr?: string) {
+  const user = await requireAuth();
+
+  const targetDate = targetDateStr ? new Date(targetDateStr) : new Date();
+  const startOfDay = new Date(targetDate);
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const endOfDay = new Date(targetDate);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  // 1. Check existing events for this day
+  const existingEvents = await prisma.event.findMany({
+    where: {
+      userId: user.id,
+      date: {
+        gte: startOfDay,
+        lte: endOfDay,
+      },
+    },
+  });
+
+  // 2. Check if an AI study session already exists on this day (idempotent protection)
+  const alreadyScheduled = existingEvents.some(
+    (ev) => ev.title.includes("Sesi Belajar") || ev.title.includes("Focus Study")
+  );
+
+  if (alreadyScheduled) {
+    return {
+      success: true,
+      count: 0,
+      message: "Sesi belajar untuk hari ini sudah dijadwalkan sebelumnya.",
+    };
+  }
+
+  // 3. Find non-conflicting time slot (prefer 19:00 - 21:00 or 21:00 - 22:30 or 16:00 - 18:00)
+  const candidateSlots = [
+    { startTime: "19:00", endTime: "21:00" },
+    { startTime: "21:00", endTime: "22:30" },
+    { startTime: "16:00", endTime: "18:00" },
+    { startTime: "08:00", endTime: "10:00" },
+  ];
+
+  let selectedSlot = candidateSlots[0];
+  for (const slot of candidateSlots) {
+    const hasConflict = existingEvents.some((ev) => {
+      if (!ev.startTime || !ev.endTime) return false;
+      // Overlap condition: startA < endB && startB < endA
+      return ev.startTime < slot.endTime && slot.startTime < ev.endTime;
+    });
+
+    if (!hasConflict) {
+      selectedSlot = slot;
+      break;
+    }
+  }
+
+  const created = await prisma.event.create({
+    data: {
+      title: "Sesi Belajar Mandiri (AI Scheduled)",
+      date: startOfDay,
+      startTime: selectedSlot.startTime,
+      endTime: selectedSlot.endTime,
+      description: "Blok waktu belajar fokus yang dijadwalkan otomatis oleh NeLK AI.",
+      userId: user.id,
+    },
+  });
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app");
+  return {
+    success: true,
+    count: 1,
+    event: created,
+    message: `Berhasil menambahkan sesi belajar pukul ${selectedSlot.startTime} - ${selectedSlot.endTime}.`,
+  };
 }
 
 // ----------------------------------------------------------------------
-// DOCUMENT (FILES) ACTIONS
+// DOCUMENT ACTIONS (P0 #1)
 // ----------------------------------------------------------------------
-import { writeFile, unlink } from 'fs/promises';
-import { join } from 'path';
-import fs from 'fs';
 
 export async function uploadDocument(formData: FormData) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  const user = await requireAuth();
+  enforceRateLimit(`doc:upload:${user.id}`, 10, 60 * 1000, "Upload Dokumen");
 
   const file = formData.get("file") as File;
-  if (!file) throw new Error("No file uploaded");
+  if (!file || !(file instanceof File)) {
+    throw new Error("File dokumen tidak ditemukan dalam permintaan.");
+  }
 
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
 
-  // Generate safe filename
-  const filename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
-  const uploadDir = join(process.cwd(), 'public', 'uploads');
-  const filepath = join(uploadDir, filename);
+  // 1. Secure storage outside public/
+  const stored = await storageService.saveFile(buffer, file.name, file.type);
 
-  // Ensure dir exists
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-
-  await writeFile(filepath, buffer);
-
+  // 2. Extract text content if applicable
   let content = "";
   if (file.type === "application/pdf") {
     try {
-      const pdfParse = (await import('pdf-parse') as any).default || (await import('pdf-parse'));
+      const pdfParse =
+        (await import("pdf-parse") as any).default || (await import("pdf-parse"));
       const data = await pdfParse(buffer);
-      content = data.text;
+      content = data.text ? data.text.slice(0, 30000) : "";
     } catch (e) {
-      console.error("PDF Parsing failed", e);
+      logger.warn("PDF parsing non-critical failure", { filename: file.name });
     }
   } else if (file.type.startsWith("text/")) {
-    content = buffer.toString('utf-8');
+    content = buffer.toString("utf-8").slice(0, 30000);
   }
 
   const doc = await prisma.document.create({
     data: {
-      title: file.name,
-      fileUrl: `/uploads/${filename}`,
-      content: content,
-      userId: session.user.id
-    }
+      title: stored.originalName,
+      fileUrl: `/api/documents/download`, // placeholder, actual download route is dynamic
+      storageKey: stored.storageKey,
+      fileSize: stored.sizeBytes,
+      mimeType: stored.mimeType,
+      content,
+      userId: user.id,
+    },
   });
 
   revalidatePath("/app/files");
@@ -239,172 +463,512 @@ export async function uploadDocument(formData: FormData) {
 }
 
 export async function deleteDocument(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  const user = await requireAuth();
 
   const doc = await prisma.document.findUnique({
-    where: { id, userId: session.user.id }
+    where: { id, userId: user.id },
   });
 
-  if (!doc) throw new Error("Not found");
+  if (!doc) throw new Error("Dokumen tidak ditemukan.");
 
-  if (doc.fileUrl) {
-    const filepath = join(process.cwd(), 'public', doc.fileUrl);
-    if (fs.existsSync(filepath)) {
-      await unlink(filepath);
-    }
+  if (doc.storageKey) {
+    await storageService.deleteFile(doc.storageKey);
+  } else if (doc.fileUrl && doc.fileUrl.startsWith("/uploads/")) {
+    // Legacy cleanup
+    await storageService.deleteFile(doc.fileUrl.replace("/uploads/", ""));
   }
 
   await prisma.document.delete({
-    where: { id }
+    where: { id },
   });
 
   revalidatePath("/app/files");
 }
 
 // ----------------------------------------------------------------------
-// AI ACTIONS
+// AI ACTIONS (P0 #2 & P2 #10)
 // ----------------------------------------------------------------------
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 
 export async function summarizeContent(content: string) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return "AI Summary requires GEMINI_API_KEY in environment variables.";
+  const user = await requireAuth();
+  enforceRateLimit(`ai:summarize:${user.id}`, 15, 60 * 1000, "Ringkasan AI");
+
+  if (!hasGeminiConfigured()) {
+    return "Fitur AI Summary belum aktif karena GEMINI_API_KEY belum dikonfigurasi di environment.";
+  }
+
+  const sanitizedContent = (content || "").slice(0, 8000);
+  if (!sanitizedContent.trim()) {
+    return "Konten kosong tidak dapat diringkas.";
+  }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-    const prompt = `Tolong buatkan ringkasan (summary) dalam bahasa Indonesia yang padat dan jelas dari teks atau catatan berikut:\n\n${content}`;
+    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Buatkan ringkasan ringkas dan jelas dalam Bahasa Indonesia berpoin-poin penting dari materi berikut:\n\n${sanitizedContent}`;
+
     const result = await model.generateContent(prompt);
     return result.response.text();
   } catch (e) {
-    console.error("AI Summarize error", e);
-    return "Maaf, gagal membuat ringkasan. Silakan periksa koneksi atau coba lagi nanti.";
+    logger.error("AI Summarize error", e);
+    return "Maaf, AI sedang sibuk atau mengalami kendala koneksi. Silakan coba sesaat lagi.";
+  }
+}
+
+export async function askAI(query: string) {
+  const user = await requireAuth();
+  enforceRateLimit(`ai:chat:${user.id}`, 20, 60 * 1000, "AI Chat");
+
+  if (!hasGeminiConfigured()) {
+    return "NeLK AI belum aktif. Tambahkan GEMINI_API_KEY pada environment variable untuk mengaktifkan asisten cerdas ini.";
+  }
+
+  const cleanQuery = (query || "").slice(0, 1000);
+  if (!cleanQuery.trim()) return "Pertanyaan tidak boleh kosong.";
+
+  try {
+    // 1. Fetch user context safely
+    const [tasks, notes] = await Promise.all([
+      prisma.task.findMany({
+        where: { userId: user.id, status: { not: "DONE" } },
+        select: { title: true, status: true, priority: true, dueDate: true },
+        take: 8,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.note.findMany({
+        where: { userId: user.id },
+        select: { title: true, content: true },
+        take: 5,
+        orderBy: { updatedAt: "desc" },
+      }),
+    ]);
+
+    const contextText = `
+Data Tugas Aktif:
+${tasks.map((t) => `- ${t.title} [Status: ${t.status}, Prioritas: ${t.priority || "MEDIUM"}, Tenggat: ${t.dueDate ? t.dueDate.toLocaleDateString("id-ID") : "Tidak ada"}]`).join("\n")}
+
+Data Catatan Terbaru:
+${notes.map((n) => `Judul: ${n.title}\nRingkasan: ${n.content?.slice(0, 150)}...`).join("\n\n")}
+`;
+
+    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: "create_task",
+              description: "Buat tugas (task) baru untuk pengguna.",
+              parameters: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  title: { type: SchemaType.STRING, description: "Judul tugas" },
+                  priority: { type: SchemaType.STRING, description: "Prioritas: LOW, MEDIUM, atau HIGH" },
+                },
+                required: ["title"],
+              },
+            },
+            {
+              name: "create_event",
+              description: "Buat jadwal/event di kalender pengguna.",
+              parameters: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  title: { type: SchemaType.STRING, description: "Judul kegiatan" },
+                  startTime: { type: SchemaType.STRING, description: "Waktu mulai (format HH:mm, contoh 09:00)" },
+                  endTime: { type: SchemaType.STRING, description: "Waktu selesai (format HH:mm, contoh 10:30)" },
+                },
+                required: ["title", "startTime", "endTime"],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const prompt = `Kamu adalah asisten akademik pribadi NeLK. Bantu mahasiswa mengorganisasi tugas, waktu belajar, dan memahami materi kuliah secara ringkas dan ramah dalam Bahasa Indonesia.
+
+Konteks Akademik Pengguna:
+${contextText}
+
+Pertanyaan: ${cleanQuery}`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+
+    // Handle tool call with strict validation
+    const functionCalls = response.functionCalls();
+    if (functionCalls && functionCalls.length > 0) {
+      const call = functionCalls[0];
+
+      if (call.name === "create_task") {
+        const args = call.args as any;
+        const taskTitle = typeof args.title === "string" ? args.title.trim().slice(0, 200) : "";
+        if (taskTitle) {
+          await createTask({
+            title: taskTitle,
+            priority: args.priority || "MEDIUM",
+            status: "TODO",
+          });
+          return `Saya telah menambahkan tugas baru: "${taskTitle}" ke daftar tugasmu!`;
+        }
+      }
+
+      if (call.name === "create_event") {
+        const args = call.args as any;
+        const eventTitle = typeof args.title === "string" ? args.title.trim().slice(0, 200) : "";
+        if (eventTitle && args.startTime && args.endTime) {
+          try {
+            await createEvent({
+              title: eventTitle,
+              date: new Date(),
+              startTime: args.startTime,
+              endTime: args.endTime,
+            });
+            return `Saya telah menjadwalkan "${eventTitle}" hari ini pukul ${args.startTime} - ${args.endTime} di kalendermu!`;
+          } catch (err: any) {
+            return `Gagal membuat jadwal: ${err.message}`;
+          }
+        }
+      }
+    }
+
+    return response.text();
+  } catch (e) {
+    logger.error("AI Chat error", e);
+    return "Maaf, AI sedang sibuk. Silakan coba lagi beberapa saat lagi.";
+  }
+}
+
+export async function getProactiveInsight() {
+  const user = await requireAuth();
+
+  if (!hasGeminiConfigured()) {
+    return "Tetap semangat belajar hari ini! Selesaikan tugas prioritasmu tepat waktu.";
+  }
+
+  try {
+    const tasks = await prisma.task.findMany({
+      where: { userId: user.id, status: { not: "DONE" } },
+      select: { title: true, dueDate: true, priority: true },
+      take: 5,
+    });
+
+    if (tasks.length === 0) {
+      return "Semua tugas sudah beres! Waktunya beristirahat atau mengeksplorasi minat barumu.";
+    }
+
+    const contextText = tasks
+      .map(
+        (t) =>
+          `- ${t.title} (Prioritas: ${t.priority}, Due: ${t.dueDate ? t.dueDate.toLocaleDateString("id-ID") : "Fleksibel"})`
+      )
+      .join("\n");
+
+    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Berikan 1 kalimat motivasi / insight singkat dan ramah (maksimal 140 karakter) dalam Bahasa Indonesia untuk menyemangati mahasiswa menyelesaikan tugas-tugas ini:\n${contextText}`;
+
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
+  } catch (e) {
+    logger.error("AI Insight error", e);
+    return "Fokus selesaikan tugas terdekat untuk hasil maksimal hari ini!";
+  }
+}
+
+export async function getRandomNoteSummary() {
+  const user = await requireAuth();
+
+  const count = await prisma.note.count({
+    where: { userId: user.id },
+  });
+
+  if (count === 0) {
+    return {
+      title: "Insight Catatan",
+      summary: "Belum ada catatan. Buat catatan materi pertamamu agar AI dapat memberikan ulasan ringkas!",
+    };
+  }
+
+  const skip = Math.floor(Math.random() * count);
+  const randomNote = await prisma.note.findFirst({
+    where: { userId: user.id },
+    skip,
+  });
+
+  if (!randomNote) return null;
+
+  if (!hasGeminiConfigured() || !randomNote.content) {
+    return {
+      title: randomNote.title,
+      summary: randomNote.content
+        ? `${randomNote.content.slice(0, 180)}...`
+        : "Catatan ini belum memiliki isi konten.",
+    };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Buat 2-3 poin pengingat kunci ringkas dalam Bahasa Indonesia dari materi catatan ini:\nJudul: ${randomNote.title}\nKonten: ${randomNote.content.slice(0, 3000)}`;
+
+    const result = await model.generateContent(prompt);
+    return {
+      title: randomNote.title,
+      summary: result.response.text(),
+    };
+  } catch (e) {
+    return {
+      title: randomNote.title,
+      summary: randomNote.content ? `${randomNote.content.slice(0, 180)}...` : "Tetap semangat belajar!",
+    };
   }
 }
 
 // ----------------------------------------------------------------------
-// COURSE ACTIONS
+// GAMIFICATION ACTIONS (P0 #3)
 // ----------------------------------------------------------------------
-export async function createCourse(title: string, description: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const course = await prisma.course.create({
-    data: {
-      title,
-      description,
-      userId: session.user.id
-    }
+export async function recordFocusSessionXP(durationMinutes: number) {
+  const user = await requireAuth();
+  enforceRateLimit(`gamification:focus:${user.id}`, 6, 60 * 1000, "Klaim Sesi Fokus");
+
+  // Validate duration between 5 and 180 minutes
+  const validDuration = Math.min(180, Math.max(5, Math.floor(durationMinutes || 0)));
+  const gainedXp = Math.min(50, Math.floor(validDuration / 2)); // 1 XP per 2 mins, max 50 XP per session
+
+  const updatedUser = await prisma.user.update({
+    where: { id: user.id },
+    data: { xp: { increment: gainedXp } },
   });
 
-  revalidatePath("/app/courses");
-  return course;
-}
-
-export async function deleteCourse(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-
-  await prisma.course.delete({
-    where: { id, userId: session.user.id }
-  });
-
-  revalidatePath("/app/courses");
-}
-
-// ----------------------------------------------------------------------
-// CLASSROOM MOCK INTEGRATION (V3)
-// ----------------------------------------------------------------------
-export async function syncGoogleClassroom() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-
-  // Create 3 mock tasks
-  const mockTasks = [
-    { title: "Tugas Akhir Semester - Matematika", status: "inbox" },
-    { title: "Review Makalah Sejarah", status: "inbox" },
-    { title: "Baca Jurnal PBO Bab 4", status: "inbox" },
-  ];
-
-  for (const t of mockTasks) {
-    await prisma.task.create({
-      data: {
-        title: t.title,
-        status: t.status,
-        userId: session.user.id
-      }
+  const newLevel = Math.floor(updatedUser.xp / 1000) + 1;
+  if (newLevel !== updatedUser.level) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { level: newLevel },
     });
   }
 
-  revalidatePath("/app/tasks");
-  return { success: true, count: mockTasks.length };
+  revalidatePath("/app/gamification");
+  revalidatePath("/app");
+  return { xp: updatedUser.xp, level: newLevel, gainedXp };
+}
+
+export async function getUserProfile() {
+  const user = await requireAuth();
+
+  return await prisma.user.findUnique({
+    where: { id: user.id },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      xp: true,
+      level: true,
+      contextMode: true,
+      university: true,
+      major: true,
+      subscriptionPlan: true,
+    },
+  });
 }
 
 // ----------------------------------------------------------------------
-// SMART SCHEDULING (V4)
+// INTEGRATION AUDIT: GOOGLE CLASSROOM & STRAVA (P1 #8)
 // ----------------------------------------------------------------------
-export async function autoScheduleStudy() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
 
-  // Get today's events to find an empty slot
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+export async function syncGoogleClassroom() {
+  const user = await requireAuth();
 
-  const existingEvents = await prisma.event.findMany({
-    where: {
-      userId: session.user.id,
-      date: {
-        gte: today,
-        lt: tomorrow
-      }
-    }
+  // Find linked Google account
+  const googleAccount = await prisma.account.findFirst({
+    where: { userId: user.id, provider: "google" },
   });
 
-  // Simple heuristic: Schedule study at 19:00 - 21:00 if it doesn't conflict
-  let startTime = "19:00";
-  let endTime = "21:00";
-
-  const conflict = existingEvents.some(ev => {
-    return ev.startTime === startTime || ev.endTime === endTime;
-  });
-
-  if (conflict) {
-    startTime = "21:00";
-    endTime = "23:00";
+  if (!googleAccount || !googleAccount.access_token) {
+    return {
+      success: false,
+      connected: false,
+      count: 0,
+      message: "Akun Google belum terhubung atau belum memberikan izin akses Google Classroom.",
+    };
   }
 
-  const created = await prisma.event.create({
-    data: {
-      title: "Sesi Belajar Fokus (AI Auto-Scheduled)",
-      date: new Date(),
-      startTime,
-      endTime,
-      userId: session.user.id
+  try {
+    // Real Classroom API fetch using token
+    const res = await fetch("https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE", {
+      headers: { Authorization: `Bearer ${googleAccount.access_token}` },
+    });
+
+    if (!res.ok) {
+      return {
+        success: false,
+        connected: true,
+        count: 0,
+        message: "Token Google Classroom kedaluwarsa. Silakan hubungkan ulang akun Google Anda.",
+      };
     }
+
+    const data = await res.json();
+    const courses = data.courses || [];
+    let syncedCount = 0;
+
+    for (const course of courses.slice(0, 5)) {
+      const courseWorkRes = await fetch(
+        `https://classroom.googleapis.com/v1/courses/${course.id}/courseWork`,
+        { headers: { Authorization: `Bearer ${googleAccount.access_token}` } }
+      );
+
+      if (courseWorkRes.ok) {
+        const cwData = await courseWorkRes.json();
+        for (const item of (cwData.courseWork || []).slice(0, 5)) {
+          const existing = await prisma.task.findFirst({
+            where: { userId: user.id, title: item.title },
+          });
+
+          if (!existing) {
+            let dueDate: Date | null = null;
+            if (item.dueDate) {
+              dueDate = new Date(item.dueDate.year, (item.dueDate.month || 1) - 1, item.dueDate.day || 1);
+            }
+
+            await prisma.task.create({
+              data: {
+                title: item.title,
+                description: item.description?.slice(0, 1000),
+                subject: course.name,
+                status: "TODO",
+                priority: "MEDIUM",
+                dueDate,
+                userId: user.id,
+              },
+            });
+            syncedCount++;
+          }
+        }
+      }
+    }
+
+    revalidatePath("/app/tasks");
+    return {
+      success: true,
+      connected: true,
+      count: syncedCount,
+      message: `Berhasil menyinkronkan ${syncedCount} tugas dari Google Classroom.`,
+    };
+  } catch (err) {
+    logger.error("Classroom sync error", err);
+    return {
+      success: false,
+      connected: true,
+      count: 0,
+      message: "Gagal menyinkronkan tugas Google Classroom.",
+    };
+  }
+}
+
+export async function syncStrava() {
+  const user = await requireAuth();
+
+  const stravaAccount = await prisma.account.findFirst({
+    where: { userId: user.id, provider: "strava" },
   });
 
-  revalidatePath("/app/schedule");
-  return { success: true, count: 1 };
+  if (!stravaAccount || !stravaAccount.access_token) {
+    return {
+      success: false,
+      connected: false,
+      count: 0,
+      message: "Akun Strava belum terhubung. Silakan hubungkan akun Strava terlebih dahulu.",
+    };
+  }
+
+  try {
+    const res = await fetch("https://www.strava.com/api/v3/athlete/activities?per_page=20", {
+      headers: {
+        Authorization: `Bearer ${stravaAccount.access_token}`,
+      },
+    });
+
+    if (!res.ok) {
+      return {
+        success: false,
+        connected: true,
+        count: 0,
+        message: "Gagal mengambil data dari Strava. Sesi Strava Anda mungkin telah kedaluwarsa.",
+      };
+    }
+
+    const activities = await res.json();
+    let newCount = 0;
+
+    for (const act of activities) {
+      const actDate = new Date(act.start_date);
+      const existing = await prisma.activity.findFirst({
+        where: {
+          userId: user.id,
+          title: act.name,
+          date: actDate,
+        },
+      });
+
+      if (!existing) {
+        await prisma.activity.create({
+          data: {
+            title: act.name,
+            type: act.type || "Workout",
+            duration: Math.round((act.moving_time || 0) / 60),
+            calories: act.kilojoules ? Math.round(act.kilojoules * 0.239) : 0,
+            date: actDate,
+            userId: user.id,
+          },
+        });
+        newCount++;
+      }
+    }
+
+    revalidatePath("/app/fitness");
+    return {
+      success: true,
+      connected: true,
+      count: newCount,
+      message: `Berhasil menyinkronkan ${newCount} aktivitas baru dari Strava.`,
+    };
+  } catch (error) {
+    logger.error("Strava sync error", error);
+    return {
+      success: false,
+      connected: true,
+      count: 0,
+      message: "Gagal menghubungkan ke Strava API.",
+    };
+  }
 }
 
 // ----------------------------------------------------------------------
-// COMMUNITY ACTIONS (V5)
+// COMMUNITY ACTIONS (P2 #11)
 // ----------------------------------------------------------------------
+
 export async function createCommunityPost(title: string, content: string, category: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  const user = await requireAuth();
+  const validated = validateCommunityPostInput({ title, content, category });
+  enforceRateLimit(`community:post:${user.id}`, 10, 60 * 1000, "Posting Komunitas");
 
   const post = await prisma.communityPost.create({
     data: {
-      title,
-      content,
-      category,
-      userId: session.user.id
-    }
+      title: validated.title,
+      content: validated.content,
+      category: validated.category,
+      userId: user.id,
+    },
+    include: {
+      user: {
+        select: { name: true, email: true },
+      },
+    },
   });
 
   revalidatePath("/app/community");
@@ -412,432 +976,167 @@ export async function createCommunityPost(title: string, content: string, catego
 }
 
 export async function deleteCommunityPost(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
+  const user = await requireAuth();
 
   await prisma.communityPost.delete({
-    where: { id, userId: session.user.id }
+    where: { id, userId: user.id },
   });
 
   revalidatePath("/app/community");
 }
 
 // ----------------------------------------------------------------------
-// FITNESS ACTIONS (V6)
+// PROFILE & CONTEXT ACTIONS
 // ----------------------------------------------------------------------
-export async function syncStrava() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const stravaAccount = await prisma.account.findFirst({
-    where: { userId: session.user.id, provider: "strava" }
+export async function updateContextMode(mode: string) {
+  const user = await requireAuth();
+  const validated = validateProfileInput({ contextMode: mode });
+
+  if (validated.contextMode) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { contextMode: validated.contextMode },
+    });
+    revalidatePath("/app");
+  }
+}
+
+export async function updateUserProfile(data: { university?: string; major?: string }) {
+  const user = await requireAuth();
+  const validated = validateProfileInput(data);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      university: validated.university,
+      major: validated.major,
+    },
   });
 
-  if (!stravaAccount || !stravaAccount.access_token) {
-    throw new Error("Strava not connected");
-  }
-
-  try {
-    const res = await fetch("https://www.strava.com/api/v3/athlete/activities?per_page=30", {
-      headers: {
-        Authorization: `Bearer ${stravaAccount.access_token}`
-      }
-    });
-
-    if (!res.ok) {
-      console.error("Strava error", await res.text());
-      throw new Error("Failed to fetch from Strava API");
-    }
-
-    const activities = await res.json();
-    let newCount = 0;
-
-    for (const act of activities) {
-      // Prevent duplicates by checking name and date
-      const existing = await prisma.activity.findFirst({
-        where: {
-          userId: session.user.id,
-          title: act.name,
-          date: new Date(act.start_date)
-        }
-      });
-
-      if (!existing) {
-        await prisma.activity.create({
-          data: {
-            title: act.name,
-            type: act.type,
-            duration: Math.round(act.moving_time / 60), // moving_time is in seconds
-            calories: act.kilojoules ? Math.round(act.kilojoules * 0.239006) : 0, // rough conversion kJ to kcal if calories not present directly
-            date: new Date(act.start_date),
-            userId: session.user.id
-          }
-        });
-        newCount++;
-      }
-    }
-
-    revalidatePath("/app/fitness");
-    return { success: true, count: newCount };
-  } catch (error) {
-    console.error("Error syncing Strava", error);
-    return { success: false, count: 0 };
-  }
+  revalidatePath("/app");
+  revalidatePath("/app/settings");
 }
 
 // ----------------------------------------------------------------------
-// AI CHAT ACTIONS (V7)
+// DASHBOARD & QUERY HELPERS (P1 #7)
 // ----------------------------------------------------------------------
-export async function askAI(query: string) {
-  const session = await auth();
-  if (!session?.user?.id) return "Maaf, Anda harus login untuk menggunakan AI.";
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return "AI Chat requires GEMINI_API_KEY in environment variables.";
-
-  try {
-    // 1. Context Retrieval (RAG)
-    const [tasks, notes] = await Promise.all([
-      prisma.task.findMany({
-        where: { userId: session.user.id },
-        select: { title: true, status: true, dueDate: true }
-      }),
-      prisma.note.findMany({
-        where: { userId: session.user.id },
-        select: { title: true, content: true },
-        take: 10,
-        orderBy: { updatedAt: "desc" }
-      })
-    ]);
-
-    const contextText = `
-Data Tugas User:
-${tasks.map(t => `- ${t.title} (Status: ${t.status}, Due: ${t.dueDate ? t.dueDate.toLocaleDateString() : 'None'})`).join('\n')}
-
-Data Catatan Terbaru User:
-${notes.map(n => `Judul: ${n.title}\nKonten Singkat: ${n.content?.substring(0, 200)}...`).join('\n\n')}
-`;
-
-    // 2. Generate with Function Calling
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-flash-latest",
-      tools: [{
-        functionDeclarations: [
-          {
-            name: "create_task",
-            description: "Buat tugas (task) baru untuk pengguna.",
-            parameters: {
-              type: SchemaType.OBJECT,
-              properties: {
-                title: { type: SchemaType.STRING, description: "Judul tugas" },
-                priority: { type: SchemaType.STRING, description: "Prioritas: high, medium, low" }
-              },
-              required: ["title"]
-            }
-          },
-          {
-            name: "create_event",
-            description: "Buat jadwal/event di kalender pengguna.",
-            parameters: {
-              type: SchemaType.OBJECT,
-              properties: {
-                title: { type: SchemaType.STRING, description: "Judul kegiatan" },
-                startTime: { type: SchemaType.STRING, description: "Waktu mulai (format HH:MM)" },
-                endTime: { type: SchemaType.STRING, description: "Waktu selesai (format HH:MM)" }
-              },
-              required: ["title", "startTime", "endTime"]
-            }
-          }
-        ]
-      }]
-    });
-    
-    const prompt = `Sebagai asisten AI NeLK (Personal Academic Assistant), jawablah pertanyaan berikut dengan singkat, informatif, dan membantu.
-    
-Berikut adalah konteks data pengguna yang relevan:
-${contextText}
-
-Pertanyaan User: ${query}`;
-    
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    
-    // Check if AI wants to call a function
-    const functionCalls = response.functionCalls();
-    if (functionCalls && functionCalls.length > 0) {
-      const call = functionCalls[0];
-      
-      if (call.name === "create_task") {
-        const args = call.args as any;
-        await prisma.task.create({
-          data: {
-            title: args.title,
-            status: "todo",
-            userId: session.user.id
-          }
-        });
-        revalidatePath("/app/tasks");
-        return `Tugas "${args.title}" telah berhasil ditambahkan ke daftarmu!`;
-      }
-      
-      if (call.name === "create_event") {
-        const args = call.args as any;
-        await prisma.event.create({
-          data: {
-            title: args.title,
-            date: new Date(),
-            startTime: args.startTime,
-            endTime: args.endTime,
-            userId: session.user.id
-          }
-        });
-        revalidatePath("/app/schedule");
-        return `Jadwal "${args.title}" dari jam ${args.startTime} hingga ${args.endTime} telah ditambahkan ke kalendermu!`;
-      }
-    }
-
-    return response.text();
-  } catch (e) {
-    console.error("AI Chat error", e);
-    return "Maaf, gagal memproses permintaan. Silakan periksa koneksi atau coba lagi nanti.";
-  }
-}
-
-export async function getProactiveInsight() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return "Insight AI belum dikonfigurasi.";
-
-  try {
-    const tasks = await prisma.task.findMany({
-      where: { userId: session.user.id, status: { not: "done" } },
-      select: { title: true, dueDate: true }
-    });
-
-    if (tasks.length === 0) return "Semua tugas sudah selesai! Kamu bisa bersantai atau mulai mempelajari hal baru.";
-
-    const contextText = tasks.map(t => `- ${t.title} (Due: ${t.dueDate ? t.dueDate.toLocaleDateString() : 'None'})`).join('\n');
-    
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-    const prompt = `Berikan 1 kalimat singkat (maksimal 150 karakter) berupa insight proaktif atau peringatan halus untuk memotivasi user menyelesaikan tugas-tugas ini:\n${contextText}`;
-    
-    const result = await model.generateContent(prompt);
-    return result.response.text();
-  } catch (e) {
-    console.error("AI Insight error", e);
-    return "Tetap semangat belajar hari ini!";
-  }
-}
-
-export async function getRandomNoteSummary() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return { title: "Insight AI", summary: "Insight AI belum dikonfigurasi dengan API Key." };
-
-  try {
-    // Get total count of user's notes
-    const count = await prisma.note.count({
-      where: { userId: session.user.id }
-    });
-
-    if (count === 0) {
-      return { 
-        title: "Insight AI", 
-        summary: "Sepertinya kamu belum memiliki catatan. Mulai buat catatan agar AI bisa memberikan ringkasan materi untukmu!" 
-      };
-    }
-
-    // Pick a random skip index
-    const skip = Math.floor(Math.random() * count);
-    const randomNote = await prisma.note.findFirst({
-      where: { userId: session.user.id },
-      skip: skip
-    });
-
-    if (!randomNote) return null;
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-    const prompt = `Berikan 3-4 poin ringkasan yang menarik dan mudah diingat dari materi ini:
-    
-Judul: ${randomNote.title}
-Konten: ${randomNote.content}
-
-Buatlah ringkasan dalam bentuk bullet points pendek.`;
-
-    const result = await model.generateContent(prompt);
-    
-    return {
-      title: randomNote.title,
-      summary: result.response.text()
-    };
-  } catch (e) {
-    console.error("Random Note Insight error", e);
-    return { title: "Insight AI", summary: "Gagal memuat ringkasan materi. Tetap semangat belajar!" };
-  }
-}
-
-// ----------------------------------------------------------------------
-// GAMIFICATION ACTIONS (V8)
-// ----------------------------------------------------------------------
-export async function awardXP(amount: number) {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { xp: true, level: true }
-  });
-  
-  if (!user) return null;
-
-  const newXp = user.xp + amount;
-  // Calculate level (1 level per 1000 XP)
-  const newLevel = Math.floor(newXp / 1000) + 1;
-
-  const updatedUser = await prisma.user.update({
-    where: { id: session.user.id },
-    data: { xp: newXp, level: newLevel }
-  });
-
-  return { xp: updatedUser.xp, level: updatedUser.level };
-}
-
-export async function getUserProfile() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-
-  return await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { xp: true, level: true, contextMode: true, university: true, major: true }
+export async function getUpcomingTasks() {
+  const user = await requireAuth();
+  return await prisma.task.findMany({
+    where: { userId: user.id, status: { not: "DONE" } },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+    take: 5,
   });
 }
 
-// ----------------------------------------------------------------------
-// NOTIFICATION & BACKGROUND JOBS (V9)
-// ----------------------------------------------------------------------
+export async function getTodaySchedule() {
+  const user = await requireAuth();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  return await prisma.event.findMany({
+    where: {
+      userId: user.id,
+      date: { gte: today, lt: tomorrow },
+    },
+    orderBy: { startTime: "asc" },
+  });
+}
+
+export async function getRecentNotes() {
+  const user = await requireAuth();
+  return await prisma.note.findMany({
+    where: { userId: user.id },
+    orderBy: { updatedAt: "desc" },
+    take: 4,
+  });
+}
+
 export async function getNotifications() {
-  const session = await auth();
-  if (!session?.user?.id) return [];
-
+  const user = await requireAuth();
   return await prisma.notification.findMany({
-    where: { userId: session.user.id },
+    where: { userId: user.id },
     orderBy: { createdAt: "desc" },
-    take: 10
+    take: 10,
   });
 }
 
 export async function markNotificationsRead() {
-  const session = await auth();
-  if (!session?.user?.id) return;
-
+  const user = await requireAuth();
   await prisma.notification.updateMany({
-    where: { userId: session.user.id, read: false },
-    data: { read: true }
+    where: { userId: user.id, read: false },
+    data: { read: true },
   });
 }
 
 export async function generateTaskReminders() {
-  const session = await auth();
-  if (!session?.user?.id) return;
+  const user = await requireAuth();
 
+  // Completed tasks must NOT receive reminders!
   const upcomingTasks = await prisma.task.findMany({
     where: {
-      userId: session.user.id,
-      status: { not: "done" },
+      userId: user.id,
+      status: { not: "DONE" },
       dueDate: {
-        lte: new Date(Date.now() + 24 * 60 * 60 * 1000) // Within 24 hours
-      }
-    }
+        lte: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    },
   });
 
   for (const task of upcomingTasks) {
-    // Check if notification already exists for this task recently (basic check by message content)
     const existing = await prisma.notification.findFirst({
       where: {
-        userId: session.user.id,
+        userId: user.id,
         message: { contains: task.title },
-        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-      }
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
     });
 
     if (!existing) {
       await prisma.notification.create({
         data: {
-          userId: session.user.id,
-          message: `Pengingat: Tugas "${task.title}" sudah dekat tenggat waktunya!`,
-          type: "reminder"
-        }
+          userId: user.id,
+          message: `Pengingat: Tugas "${task.title}" mendekati batas tenggat waktu!`,
+          type: "reminder",
+        },
       });
     }
   }
 }
 
 // ----------------------------------------------------------------------
-// CONTEXT & PROFILE ACTIONS (V10)
+// COURSE ACTIONS
 // ----------------------------------------------------------------------
-export async function updateContextMode(mode: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
 
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { contextMode: mode }
-  });
+export async function createCourse(title: string, description?: string) {
+  const user = await requireAuth();
+  const cleanTitle = (title || "").trim().slice(0, 200);
+  if (!cleanTitle) throw new Error("Nama mata kuliah / topik wajib diisi.");
 
-  revalidatePath("/app");
-}
-
-export async function updateUserProfile(data: { university?: string, major?: string }) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Unauthorized");
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data
-  });
-  revalidatePath("/app");
-}
-
-export async function getUpcomingTasks() {
-  const session = await auth();
-  if (!session?.user?.id) return [];
-  return await prisma.task.findMany({
-    where: { userId: session.user.id, status: { not: "done" } },
-    orderBy: { dueDate: 'asc' },
-    take: 3
-  });
-}
-
-export async function getTodaySchedule() {
-  const session = await auth();
-  if (!session?.user?.id) return [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  return await prisma.event.findMany({
-    where: { 
-      userId: session.user.id,
-      date: { gte: today, lt: tomorrow }
+  const course = await prisma.course.create({
+    data: {
+      title: cleanTitle,
+      description: description?.trim().slice(0, 1000) || null,
+      userId: user.id,
     },
-    orderBy: { startTime: 'asc' }
   });
+
+  revalidatePath("/app/courses");
+  return course;
 }
 
-export async function getRecentNotes() {
-  const session = await auth();
-  if (!session?.user?.id) return [];
-  return await prisma.note.findMany({
-    where: { userId: session.user.id },
-    orderBy: { updatedAt: 'desc' },
-    take: 2
+export async function deleteCourse(id: string) {
+  const user = await requireAuth();
+
+  await prisma.course.delete({
+    where: { id, userId: user.id },
   });
+
+  revalidatePath("/app/courses");
 }
 

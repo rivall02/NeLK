@@ -79,7 +79,9 @@ model Task {
   id          String   @id @default(cuid())
   title       String
   description String?
-  status      String   @default("todo") // "todo", "in_progress", "done"
+  status      String   @default("TODO") // "TODO", "IN_PROGRESS", "DONE"
+  priority    String   @default("MEDIUM") // "LOW", "MEDIUM", "HIGH"
+  subject     String?
   dueDate     DateTime?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -129,6 +131,9 @@ model Document {
   title        String
   content      String?
   fileUrl      String?
+  fileSize     Int?
+  mimeType     String?
+  storageKey   String?
   collectionId String?
   collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   userId       String

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Plus,
@@ -9,101 +9,224 @@ import {
   Clock,
   Trash,
   Sparkle,
-  DotsThree,
+  FloppyDisk,
+  CheckCircle,
+  WarningCircle,
 } from "@phosphor-icons/react";
+import { toast } from "sonner";
+import {
+  createNote,
+  updateNote,
+  deleteNote as deleteNoteAction,
+  summarizeContent,
+} from "@/lib/actions";
 
 interface Note {
   id: string;
   title: string;
+  content: string;
   preview: string;
   subject: string;
   updatedAt: string;
 }
 
-import { createNote, updateNote, deleteNote as deleteNoteAction, summarizeContent } from "@/lib/actions";
+type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) {
-  const [notes, setNotes] = useState(initialNotes);
+  const [notes, setNotes] = useState<Note[]>(initialNotes);
   const [search, setSearch] = useState("");
-  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
-  const [editorContent, setEditorContent] = useState("");
+  const [selectedNote, setSelectedNote] = useState<Note | null>(
+    initialNotes.length > 0 ? initialNotes[0] : null
+  );
+
+  // Editor State
+  const [editorTitle, setEditorTitle] = useState(
+    initialNotes.length > 0 ? initialNotes[0].title : ""
+  );
+  const [editorContent, setEditorContent] = useState(
+    initialNotes.length > 0 ? initialNotes[0].content : ""
+  );
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isSummarizing, setIsSummarizing] = useState(false);
+
+  // Save timeout ref for debouncing
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const latestContentRef = useRef({ title: editorTitle, content: editorContent });
+
+  useEffect(() => {
+    latestContentRef.current = { title: editorTitle, content: editorContent };
+  }, [editorTitle, editorContent]);
 
   const filtered = notes.filter(
     (n) =>
       n.title.toLowerCase().includes(search.toLowerCase()) ||
-      n.subject.toLowerCase().includes(search.toLowerCase())
+      n.subject.toLowerCase().includes(search.toLowerCase()) ||
+      n.content.toLowerCase().includes(search.toLowerCase())
   );
 
+  const performSave = useCallback(
+    async (id: string, titleToSave: string, contentToSave: string) => {
+      if (!id || id.startsWith("temp-")) return;
+      setSaveStatus("saving");
+
+      try {
+        await updateNote(id, {
+          title: titleToSave.trim() || "Catatan Tanpa Judul",
+          content: contentToSave,
+        });
+
+        // Update in notes list
+        setNotes((current) =>
+          current.map((n) =>
+            n.id === id
+              ? {
+                  ...n,
+                  title: titleToSave.trim() || "Catatan Tanpa Judul",
+                  content: contentToSave,
+                  preview: contentToSave.slice(0, 100),
+                  updatedAt: "Baru saja",
+                }
+              : n
+          )
+        );
+
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2500);
+      } catch (err: any) {
+        setSaveStatus("error");
+        toast.error(err.message || "Gagal menyimpan catatan.");
+      }
+    },
+    []
+  );
+
+  // Autosave trigger on editor change
+  const triggerDebouncedSave = (newTitle: string, newContent: string) => {
+    if (!selectedNote || selectedNote.id.startsWith("temp-")) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    setSaveStatus("saving");
+    saveTimeoutRef.current = setTimeout(() => {
+      performSave(selectedNote.id, newTitle, newContent);
+    }, 750);
+  };
+
   function openNote(note: Note) {
+    // If there is an unsaved pending save for current note, flush it
+    if (selectedNote && saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      performSave(selectedNote.id, editorTitle, editorContent);
+    }
+
     setSelectedNote(note);
-    setEditorContent(note.preview);
+    setEditorTitle(note.title);
+    setEditorContent(note.content);
+    setSaveStatus("idle");
   }
 
   async function createNewNote() {
-    const tempId = Date.now().toString();
+    const tempId = `temp-${Date.now()}`;
     const newNote: Note = {
       id: tempId,
       title: "Catatan Baru",
+      content: "",
       preview: "",
       subject: "Umum",
       updatedAt: "Baru saja",
     };
+
     setNotes([newNote, ...notes]);
-    openNote(newNote);
-    
+    setSelectedNote(newNote);
+    setEditorTitle(newNote.title);
+    setEditorContent("");
+    setSaveStatus("idle");
+
     try {
-      const saved = await createNote({ title: newNote.title });
-      setNotes((curr) => curr.map(n => n.id === tempId ? { ...n, id: saved.id } : n));
-      setSelectedNote((curr) => curr?.id === tempId ? { ...curr, id: saved.id } : curr);
-    } catch (e) {
-      console.error(e);
-      setNotes((curr) => curr.filter(n => n.id !== tempId));
+      const saved = await createNote({ title: newNote.title, content: "" });
+      setNotes((curr) =>
+        curr.map((n) => (n.id === tempId ? { ...n, id: saved.id } : n))
+      );
+      setSelectedNote((curr) =>
+        curr?.id === tempId ? { ...curr, id: saved.id } : curr
+      );
+      toast.success("Catatan baru dibuat!");
+    } catch (e: any) {
+      setNotes((curr) => curr.filter((n) => n.id !== tempId));
+      toast.error(e.message || "Gagal membuat catatan.");
     }
   }
 
-  async function deleteNote(id: string) {
+  async function handleDeleteNote(id: string) {
+    const previous = [...notes];
     setNotes(notes.filter((n) => n.id !== id));
-    if (selectedNote?.id === id) {
-      setSelectedNote(null);
-      setEditorContent("");
-    }
-    await deleteNoteAction(id);
-  }
 
-  async function saveNote(id: string, updates: { title?: string, content?: string }) {
-    await updateNote(id, updates);
+    if (selectedNote?.id === id) {
+      const remaining = notes.filter((n) => n.id !== id);
+      if (remaining.length > 0) {
+        openNote(remaining[0]);
+      } else {
+        setSelectedNote(null);
+        setEditorTitle("");
+        setEditorContent("");
+      }
+    }
+
+    try {
+      await deleteNoteAction(id);
+      toast.success("Catatan berhasil dihapus.");
+    } catch (err: any) {
+      setNotes(previous);
+      toast.error(err.message || "Gagal menghapus catatan.");
+    }
   }
 
   async function handleSummarize() {
-    if (!editorContent.trim()) return;
+    if (!editorContent.trim()) {
+      toast.error("Tulis konten catatan terlebih dahulu sebelum membuat ringkasan AI.");
+      return;
+    }
+
     setIsSummarizing(true);
     try {
       const summary = await summarizeContent(editorContent);
-      const newContent = editorContent + "\n\n--- AI Summary ---\n" + summary;
-      setEditorContent(newContent);
-      await saveNote(selectedNote!.id, { content: newContent });
-    } catch (e) {
-      console.error(e);
-      alert("Failed to summarize.");
+      const updatedContent = `${editorContent}\n\n---\n### 🤖 AI Summary\n${summary}`;
+      setEditorContent(updatedContent);
+
+      if (selectedNote) {
+        await performSave(selectedNote.id, editorTitle, updatedContent);
+      }
+      toast.success("Ringkasan AI berhasil dibuat dan disimpan!");
+    } catch (e: any) {
+      toast.error(e.message || "Gagal membuat ringkasan.");
     } finally {
       setIsSummarizing(false);
     }
   }
 
   return (
-    <div className="flex h-[calc(100dvh-var(--topbar-height)-48px)] md:h-[calc(100dvh-64px)] gap-0 overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)]">
+    <div className="flex h-[calc(100dvh-var(--topbar-height)-48px)] md:h-[calc(100dvh-64px)] gap-0 overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm">
       {/* Sidebar: Notes List */}
-      <div className={`flex w-full flex-col border-r border-[var(--color-border)] md:w-[320px] ${selectedNote ? "hidden md:flex" : "flex"}`}>
+      <div
+        className={`flex w-full flex-col border-r border-[var(--color-border)] md:w-[320px] ${
+          selectedNote ? "hidden md:flex" : "flex"
+        }`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
-          <h1 className="text-lg font-bold text-[var(--color-text)]">Catatan</h1>
+          <div>
+            <h1 className="text-lg font-bold text-[var(--color-text)]">Catatan Kuliah</h1>
+            <p className="text-xs text-[var(--color-text-muted)]">{notes.length} catatan tersimpan</p>
+          </div>
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={createNewNote}
-            className="flex items-center justify-center rounded-xl bg-[var(--color-primary)] p-2 text-white shadow-[var(--shadow-sm)] hover:bg-[var(--color-primary-hover)] active:scale-95"
+            className="flex items-center justify-center rounded-xl bg-[var(--color-primary)] p-2 text-white shadow-sm hover:bg-[var(--color-primary-hover)] transition-colors"
             aria-label="Catatan baru"
-          >          <Plus size={18} weight="bold" />
+          >
+            <Plus size={18} weight="bold" />
           </motion.button>
         </div>
 
@@ -122,7 +245,7 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
+        <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1.5">
           <AnimatePresence>
             {filtered.map((note, i) => (
               <motion.div
@@ -130,37 +253,48 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2, delay: i * 0.03 }}
+                transition={{ duration: 0.2, delay: i * 0.02 }}
                 onClick={() => openNote(note)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') openNote(note); }}
-                className={`group w-full rounded-xl p-3 text-left transition-colors ${
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") openNote(note);
+                }}
+                className={`group w-full rounded-xl p-3 text-left transition-colors cursor-pointer ${
                   selectedNote?.id === note.id
-                    ? "bg-[var(--color-primary-light)]"
-                    : "hover:bg-[var(--color-surface-hover)]"
+                    ? "bg-[var(--color-primary-light)] border border-[var(--color-primary)]/20"
+                    : "hover:bg-[var(--color-surface-hover)] border border-transparent"
                 }`}
               >
-                <div className="flex items-start justify-between">
-                  <p className={`text-sm font-medium truncate ${
-                    selectedNote?.id === note.id ? "text-[var(--color-primary)]" : "text-[var(--color-text)]"
-                  }`}>
+                <div className="flex items-start justify-between gap-2">
+                  <p
+                    className={`text-sm font-semibold truncate ${
+                      selectedNote?.id === note.id
+                        ? "text-[var(--color-primary)]"
+                        : "text-[var(--color-text)]"
+                    }`}
+                  >
                     {note.title}
                   </p>
                   <button
-                    onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }}
-                    className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-surface-active)] hover:text-[var(--color-error)] group-hover:flex"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteNote(note.id);
+                    }}
+                    className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-950/40 group-hover:flex transition-colors"
                     aria-label="Hapus catatan"
                   >
                     <Trash size={13} />
                   </button>
                 </div>
-                <p className="mt-1 text-xs text-[var(--color-text-muted)] line-clamp-2">{note.preview}</p>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="rounded-full bg-[var(--color-primary-light)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-primary)]">
+                <p className="mt-1 text-xs text-[var(--color-text-muted)] line-clamp-2">
+                  {note.content ? note.content.slice(0, 100) : "(Catatan kosong)"}
+                </p>
+                <div className="mt-2 flex items-center justify-between text-[10px] text-[var(--color-text-muted)]">
+                  <span className="rounded-full bg-[var(--color-bg)] px-2 py-0.5 font-medium border border-[var(--color-border)]">
                     {note.subject}
                   </span>
-                  <span className="text-[10px] text-[var(--color-text-muted)]">{note.updatedAt}</span>
+                  <span>{note.updatedAt}</span>
                 </div>
               </motion.div>
             ))}
@@ -168,61 +302,83 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
 
           {filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Notebook size={40} className="text-[var(--color-text-muted)] mb-3" />
-              <p className="text-sm text-[var(--color-text-muted)]">Tidak ada catatan ditemukan</p>
+              <Notebook size={40} className="text-[var(--color-text-muted)] mb-2 opacity-50" />
+              <p className="text-sm font-medium text-[var(--color-text-muted)]">
+                Tidak ada catatan ditemukan
+              </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Editor */}
+      {/* Editor Main Area */}
       <div className={`flex flex-1 flex-col ${!selectedNote ? "hidden md:flex" : "flex"}`}>
         {selectedNote ? (
           <>
             {/* Editor Header */}
-            <div className="flex items-center justify-between border-b border-[var(--color-border)] px-6 py-4">
-              <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] px-6 py-3.5 bg-[var(--color-surface)]">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <button
                   onClick={() => setSelectedNote(null)}
                   className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] md:hidden"
-                  aria-label="Kembali"
+                  aria-label="Kembali ke daftar"
                 >
                   ←
                 </button>
                 <input
                   type="text"
-                  value={selectedNote.title}
+                  value={editorTitle}
                   onChange={(e) => {
-                    const updated = { ...selectedNote, title: e.target.value };
-                    setSelectedNote(updated);
-                    setNotes(notes.map((n) => (n.id === updated.id ? updated : n)));
+                    setEditorTitle(e.target.value);
+                    triggerDebouncedSave(e.target.value, editorContent);
                   }}
-                  onBlur={() => saveNote(selectedNote.id, { title: selectedNote.title })}
-                  className="text-lg font-bold text-[var(--color-text)] bg-transparent outline-none flex-1 min-w-0"
+                  placeholder="Judul Catatan..."
+                  className="text-lg font-bold text-[var(--color-text)] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[var(--color-text-muted)]"
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <div className="hidden sm:flex items-center -space-x-2 mr-2">
-                  <div className="w-6 h-6 rounded-full bg-blue-500 border-2 border-[var(--color-surface)] flex items-center justify-center text-[10px] text-white font-bold" title="Alice is editing">A</div>
-                  <div className="w-6 h-6 rounded-full bg-green-500 border-2 border-[var(--color-surface)] flex items-center justify-center text-[10px] text-white font-bold" title="Bob is viewing">B</div>
-                  <div className="w-6 h-6 rounded-full bg-[var(--color-surface-hover)] border-2 border-[var(--color-surface)] flex items-center justify-center text-[10px] text-[var(--color-text-muted)] font-bold">+1</div>
+
+              {/* Status & Action Buttons */}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                  {saveStatus === "saving" && (
+                    <span className="inline-flex items-center gap-1 text-amber-500 font-medium">
+                      <Clock size={13} className="animate-spin" /> Menyimpan...
+                    </span>
+                  )}
+                  {saveStatus === "saved" && (
+                    <span className="inline-flex items-center gap-1 text-green-500 font-medium">
+                      <CheckCircle size={13} weight="fill" /> Tersimpan
+                    </span>
+                  )}
+                  {saveStatus === "error" && (
+                    <span className="inline-flex items-center gap-1 text-red-500 font-medium">
+                      <WarningCircle size={13} weight="fill" /> Gagal simpan
+                    </span>
+                  )}
+                  {saveStatus === "idle" && (
+                    <span className="text-[11px] opacity-70">Autosave aktif</span>
+                  )}
                 </div>
-                <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
-                  <Clock size={12} />
-                  <span>{selectedNote.updatedAt}</span>
-                </div>
-                <button 
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${isSummarizing ? "bg-gray-200 text-gray-500" : "bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20"} transition-colors text-xs font-semibold`}
-                  aria-label="AI Summarize"
+
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
                   onClick={handleSummarize}
-                  disabled={isSummarizing}
+                  disabled={isSummarizing || !editorContent.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20 transition-colors text-xs font-semibold disabled:opacity-50"
+                  aria-label="AI Summarize"
                 >
                   <Sparkle weight="fill" size={14} className={isSummarizing ? "animate-spin" : ""} />
-                  <span>{isSummarizing ? "Summarizing..." : "Summarize"}</span>
-                </button>
-                <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]" aria-label="Opsi lainnya">
-                  <DotsThree size={18} weight="bold" />
-                </button>
+                  <span>{isSummarizing ? "Meringkas..." : "AI Summary"}</span>
+                </motion.button>
+
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => performSave(selectedNote.id, editorTitle, editorContent)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] transition-colors text-xs font-semibold"
+                >
+                  <FloppyDisk size={14} weight="bold" />
+                  <span>Simpan</span>
+                </motion.button>
               </div>
             </div>
 
@@ -230,22 +386,24 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
             <div className="flex-1 overflow-y-auto p-6">
               <textarea
                 value={editorContent}
-                onChange={(e) => setEditorContent(e.target.value)}
-                placeholder="Mulai menulis..."
-                onBlur={() => {
-                  const updatedPreview = editorContent.slice(0, 50) + (editorContent.length > 50 ? "..." : "");
-                  setNotes(notes.map((n) => (n.id === selectedNote.id ? { ...n, preview: updatedPreview } : n)));
-                  saveNote(selectedNote.id, { content: editorContent });
+                onChange={(e) => {
+                  setEditorContent(e.target.value);
+                  triggerDebouncedSave(editorTitle, e.target.value);
                 }}
-                className="h-full w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none"
+                placeholder="Tulis catatan kuliah, materi dosen, rangkuman rumus, atau ide belajarmu di sini..."
+                className="h-full w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none font-sans"
               />
             </div>
           </>
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <Notebook size={48} weight="thin" className="text-[var(--color-text-muted)] mb-4" />
-            <p className="text-base font-medium text-[var(--color-text-secondary)]">Pilih catatan untuk mulai</p>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)]">Atau buat catatan baru dengan tombol +</p>
+          <div className="flex flex-1 flex-col items-center justify-center text-center p-8">
+            <Notebook size={56} weight="thin" className="text-[var(--color-text-muted)] mb-3 opacity-40" />
+            <p className="text-base font-semibold text-[var(--color-text)]">
+              Pilih catatan untuk mulai membaca atau mengedit
+            </p>
+            <p className="mt-1 text-sm text-[var(--color-text-muted)] max-w-sm">
+              Atau klik tombol '+' di sudut kiri atas untuk membuat catatan materi kuliah baru.
+            </p>
           </div>
         )}
       </div>

@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import TasksClient from "./client";
 import { redirect } from "next/navigation";
+import { normalizeTaskStatus, normalizeTaskPriority } from "@/lib/validations";
 
 export const metadata = {
   title: "Tugas - NeLK",
@@ -16,19 +17,18 @@ export default async function TasksPage() {
   // Fetch tasks from DB
   const tasks = await prisma.task.findMany({
     where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
   });
 
-  // Map to the format expected by the client
+  // Map to canonical format for client
   const mappedTasks = tasks.map((t) => ({
     id: t.id,
     title: t.title,
     description: t.description || undefined,
-    due: t.dueDate ? new Date(t.dueDate).toLocaleString("id-ID") : undefined,
-    // Provide default mappings for properties not in Prisma model yet
-    priority: "medium" as const, 
-    status: t.status as "inbox" | "planned" | "completed",
-    subject: undefined,
+    due: t.dueDate ? t.dueDate.toISOString() : undefined,
+    priority: normalizeTaskPriority(t.priority),
+    status: normalizeTaskStatus(t.status),
+    subject: t.subject || undefined,
   }));
 
   return <TasksClient initialTasks={mappedTasks} />;

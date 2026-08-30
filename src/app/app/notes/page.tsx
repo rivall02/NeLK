@@ -13,19 +13,24 @@ export default async function NotesPage() {
     redirect("/login");
   }
 
-  // Fetch notes from DB
+  // Fetch notes with full content
   const notes = await prisma.note.findMany({
     where: { userId: session.user.id },
     orderBy: { updatedAt: "desc" },
   });
 
-  // Map to the format expected by the client
   const mappedNotes = notes.map((n) => ({
     id: n.id,
     title: n.title,
-    preview: n.content ? n.content.substring(0, 50) : "",
+    content: n.content || "",
+    preview: n.content ? n.content.slice(0, 100) : "",
     subject: "Umum",
-    updatedAt: new Date(n.updatedAt).toLocaleString("id-ID"),
+    updatedAt: new Date(n.updatedAt).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
   }));
 
   return <NotesClient initialNotes={mappedNotes} />;

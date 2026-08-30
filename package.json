@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "tsc --noEmit",
+    "test": "npx tsx tests/run-tests.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

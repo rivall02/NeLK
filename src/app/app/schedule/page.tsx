@@ -4,7 +4,7 @@ import ScheduleClient from "./client";
 import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: "Jadwal - NeLK",
+  title: "Jadwal & Kalender - NeLK",
 };
 
 export default async function SchedulePage() {
@@ -13,25 +13,42 @@ export default async function SchedulePage() {
     redirect("/login");
   }
 
-  // Fetch events from DB
-  const events = await prisma.event.findMany({
-    where: { userId: session.user.id },
-    orderBy: { date: "asc" },
-  });
+  // Fetch events & upcoming tasks from DB
+  const [events, upcomingTasks] = await Promise.all([
+    prisma.event.findMany({
+      where: { userId: session.user.id },
+      orderBy: [{ date: "asc" }, { startTime: "asc" }],
+    }),
+    prisma.task.findMany({
+      where: { userId: session.user.id, status: { not: "DONE" }, dueDate: { not: null } },
+      orderBy: { dueDate: "asc" },
+      take: 4,
+    }),
+  ]);
 
-  // Since the existing mock UI uses string dates (like "2026-08-30"), 
-  // we'll format the ISO Date to YYYY-MM-DD
   const mappedEvents = events.map((e) => {
-    // Format YYYY-MM-DD
-    const dateStr = e.date.toISOString().split("T")[0];
+    const d = new Date(e.date);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     return {
       id: e.id,
       title: e.title,
-      time: e.startTime && e.endTime ? `${e.startTime} - ${e.endTime}` : e.startTime || "",
-      type: "class" as const, // Default for now
+      description: e.description || undefined,
+      startTime: e.startTime || "",
+      endTime: e.endTime || "",
+      time: e.startTime && e.endTime ? `${e.startTime} - ${e.endTime}` : e.startTime || "Sepanjang hari",
+      type: (e.title.toLowerCase().includes("belajar") || e.title.toLowerCase().includes("study")
+        ? "study"
+        : "class") as "class" | "study" | "meeting" | "exam",
       date: dateStr,
     };
   });
 
-  return <ScheduleClient initialEvents={mappedEvents} />;
+  const mappedTasks = upcomingTasks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    dueDate: t.dueDate ? t.dueDate.toISOString() : undefined,
+    priority: t.priority,
+  }));
+
+  return <ScheduleClient initialEvents={mappedEvents} initialDeadlines={mappedTasks} />;
 }

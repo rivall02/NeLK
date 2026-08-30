@@ -1,9 +1,12 @@
 import NextAuth from "next-auth";
 import { authConfig } from "./auth.config";
 
-export default NextAuth(authConfig).auth;
+const nextAuth = NextAuth(authConfig);
+
+export const proxy = nextAuth.auth;
+export default nextAuth.auth;
 
 export const config = {
-  // https://nextjs.org/docs/app/building-your-application/routing/middleware#matcher
+  // Exclude static assets, Next.js internals, and image routes
   matcher: ['/((?!api|_next/static|_next/image|.*\\.png$).*)'],
 };

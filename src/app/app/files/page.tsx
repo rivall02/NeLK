@@ -4,8 +4,16 @@ import FilesClient from "./client";
 import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: "Files - NeLK",
+  title: "Dokumen & Modul - NeLK",
 };
+
+function formatBytes(bytes?: number | null): string {
+  if (!bytes || bytes === 0) return "Ukuran bervariasi";
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
 
 export default async function FilesPage() {
   const session = await auth();
@@ -22,10 +30,14 @@ export default async function FilesPage() {
   const mappedDocs = documents.map((d) => ({
     id: d.id,
     name: d.title,
-    size: "Unknown", // we don't store size yet
+    size: formatBytes(d.fileSize),
     type: d.title.toLowerCase().endsWith(".pdf") ? "pdf" : "text",
-    date: new Date(d.createdAt).toLocaleDateString(),
-    fileUrl: d.fileUrl,
+    date: new Date(d.createdAt).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    downloadUrl: `/api/documents/${d.id}/download`,
   }));
 
   return <FilesClient initialFiles={mappedDocs} />;

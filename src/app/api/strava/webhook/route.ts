@@ -1,21 +1,23 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
 
-// Webhook verification endpoint (GET)
+// Webhook subscription verification endpoint (GET)
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  
-  const mode = searchParams.get('hub.mode');
-  const token = searchParams.get('hub.verify_token');
-  const challenge = searchParams.get('hub.challenge');
-  
-  // Verify token matches our env variable (or a hardcoded one for now)
-  const verifyToken = "NELK_STRAVA_VERIFY";
-  
-  if (mode === 'subscribe' && token === verifyToken) {
-    console.log('WEBHOOK_VERIFIED');
+
+  const mode = searchParams.get("hub.mode");
+  const token = searchParams.get("hub.verify_token");
+  const challenge = searchParams.get("hub.challenge");
+
+  const expectedToken = env.STRAVA_VERIFY_TOKEN;
+
+  if (mode === "subscribe" && token === expectedToken) {
+    logger.info("Strava webhook verified successfully");
     return NextResponse.json({ "hub.challenge": challenge }, { status: 200 });
   } else {
+    logger.warn("Strava webhook verification failed", { mode });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 }
@@ -24,36 +26,32 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    console.log("Strava webhook event received!", body);
-    
-    // Example body format:
-    // {
-    //   object_type: 'activity',
-    //   object_id: 123456789,
-    //   aspect_type: 'create',
-    //   owner_id: 9876543,
-    //   ...
-    // }
+    logger.info("Strava webhook event received", {
+      object_type: body.object_type,
+      aspect_type: body.aspect_type,
+    });
 
-    // If it's a new activity creation
-    if (body.object_type === 'activity' && body.aspect_type === 'create') {
-      const ownerId = body.owner_id; // This is the Strava Athlete ID
-      
-      // We would normally find the user with this Strava Account ID in Prisma
-      // const account = await prisma.account.findFirst({ where: { providerAccountId: String(ownerId) }});
-      // if (account) { 
-      //   // Award XP for creating an activity!
-      //   const user = await prisma.user.update({
-      //     where: { id: account.userId },
-      //     data: { xp: { increment: 50 } } // 50 XP per Strava Activity!
-      //   });
-      // }
-      console.log(`Will process activity ${body.object_id} for athlete ${ownerId}`);
+    // Handle new activity creation
+    if (body.object_type === "activity" && body.aspect_type === "create") {
+      const ownerId = String(body.owner_id);
+
+      const account = await prisma.account.findFirst({
+        where: { provider: "strava", providerAccountId: ownerId },
+      });
+
+      if (account) {
+        // Award XP for logging a real fitness activity
+        await prisma.user.update({
+          where: { id: account.userId },
+          data: { xp: { increment: 30 } },
+        });
+        logger.info("Awarded fitness XP to user", { userId: account.userId });
+      }
     }
-    
+
     return NextResponse.json({ message: "EVENT_RECEIVED" }, { status: 200 });
   } catch (e) {
-    console.error("Error processing Strava webhook", e);
+    logger.error("Error processing Strava webhook", e);
     return NextResponse.json({ error: "Internal Error" }, { status: 500 });
   }
 }
