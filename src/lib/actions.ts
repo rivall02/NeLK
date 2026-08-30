@@ -841,10 +841,3 @@ export async function getRecentNotes() {
   });
 }
 
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data
-  });
-
-  revalidatePath("/app/settings");
-}
