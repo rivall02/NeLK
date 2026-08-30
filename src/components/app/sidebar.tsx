@@ -28,7 +28,7 @@ const allNavItems = [
   { label: "Catatan", href: "/app/notes", icon: Notebook },
   { label: "Tugas", href: "/app/tasks", icon: CheckSquare },
   { label: "Jadwal", href: "/app/schedule", icon: CalendarDots },
-  { label: "Files & Belajar", href: "/app/files", icon: Folder },
+  { label: "Belajar", href: "/app/files", icon: Folder },
   { label: "Komunitas", href: "/app/community", icon: UsersThree },
   { label: "Kesehatan", href: "/app/fitness", icon: Sneaker },
   { label: "AI", href: "/app/ai", icon: Brain },

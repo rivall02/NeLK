@@ -161,7 +161,8 @@ export async function generateComplexTaskAI(systemPrompt: string, userContent: s
  */
 export async function extractScheduleWithAI(documentText: string): Promise<any[]> {
   const keys = getKeys();
-  const prompt = `Analisis dokumen jadwal perkuliahan berikut dan ekstrak semua mata kuliah/kegiatan.
+  const isImage = documentText.startsWith("data:image/");
+  const prompt = isImage ? documentText : `Analisis dokumen jadwal perkuliahan berikut dan ekstrak semua mata kuliah/kegiatan.
 Untuk setiap item, berikan JSON array objek dengan format:
 [
   {
@@ -176,14 +177,16 @@ Hanya return JSON murni tanpa markdown atau teks pengantar.
 
 Dokumen:\n${documentText.slice(0, 10000)}`;
 
+  const systemContext = "Kamu adalah parser jadwal akademik cerdas yang mengekstrak informasi ke format JSON array valid dengan properti: title, date (YYYY-MM-DD), startTime (HH:mm), endTime (HH:mm), description. Pastikan hanya mereturn JSON murni, tanpa teks lain.";
+
   let rawResponse = "";
 
   if (keys.groq) {
     try {
       rawResponse = await callGroqChat(
-        "Kamu adalah parser jadwal akademik cerdas yang mengekstrak informasi ke format JSON array valid.",
+        systemContext,
         prompt,
-        "qwen/qwen3.8-27b"
+        isImage ? "llama-3.2-11b-vision-preview" : "qwen/qwen3.8-27b" // Use vision model if image, else qwen
       );
     } catch (e: any) {
       logger.warn("Groq Qwen 3.8 27B error, fallback to Gemini:", e.message);
@@ -229,6 +232,15 @@ async function callGroqChat(systemPrompt: string, userMessage: string, modelName
   const keys = getKeys();
   if (!keys.groq) throw new Error("Kunci API Groq belum dikonfigurasi.");
 
+  // Check if userMessage is a data URL (image)
+  let userContent: any = userMessage;
+  if (userMessage.startsWith("data:image/")) {
+    userContent = [
+      { type: "text", text: "Tolong ekstrak informasi dari gambar jadwal ini." },
+      { type: "image_url", image_url: { url: userMessage } }
+    ];
+  }
+
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -239,7 +251,7 @@ async function callGroqChat(systemPrompt: string, userMessage: string, modelName
       model: modelName,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
+        { role: "user", content: userContent },
       ],
       temperature: 0.6,
       max_tokens: 2000,
@@ -291,6 +303,21 @@ async function callGeminiChat(systemPrompt: string, userMessage: string): Promis
 
   const genAI = new GoogleGenerativeAI(keys.gemini);
   const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
+  
+  if (userMessage.startsWith("data:image/")) {
+    const match = userMessage.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+    if (match) {
+      const mimeType = match[1];
+      const data = match[2];
+      const result = await model.generateContent([
+        systemPrompt,
+        "Tolong ekstrak informasi dari gambar jadwal ini.",
+        { inlineData: { data, mimeType } }
+      ]);
+      return result.response.text();
+    }
+  }
+
   const result = await model.generateContent(`${systemPrompt}\n\n${userMessage}`);
   return result.response.text();
 }

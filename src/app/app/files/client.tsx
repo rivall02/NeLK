@@ -28,6 +28,7 @@ import {
   summarizeContent,
   generateQuizFromContent,
   createCourse,
+  syncClassroomMaterials,
 } from "@/lib/actions";
 
 type FileDoc = {
@@ -228,7 +229,7 @@ export default function FilesClient({
             className="text-3xl font-bold text-[var(--color-text)] tracking-tight flex items-center gap-3"
           >
             <FolderOpen weight="fill" className="text-[var(--color-primary)]" />
-            Files & Belajar
+            Belajar
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: -10 }}
@@ -260,6 +261,30 @@ export default function FilesClient({
             )}
             <span>{isUploading ? "Mengunggah..." : "Unggah File"}</span>
           </button>
+          
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={async () => {
+              const loadingToast = toast.loading("Menyinkronkan materi Classroom...");
+              try {
+                const res = await syncClassroomMaterials();
+                toast.dismiss(loadingToast);
+                if (res.success) {
+                  toast.success(res.message);
+                  window.location.reload();
+                } else {
+                  toast.error(res.message);
+                }
+              } catch (e: any) {
+                toast.dismiss(loadingToast);
+                toast.error("Gagal menyinkronkan materi.");
+              }
+            }}
+            className="flex items-center gap-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text)] shadow-sm hover:bg-[var(--color-surface-hover)] active:scale-95 transition-colors"
+          >
+            <Lightning size={16} weight="duotone" className="text-[var(--color-primary)]" />
+            Sync Classroom
+          </motion.button>
         </motion.div>
       </header>
 
@@ -409,9 +434,33 @@ export default function FilesClient({
             onClick={() => setShowCourseModal(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-primary)] text-white text-xs font-semibold hover:bg-[var(--color-primary-hover)] transition-colors"
           >
-            <Plus size={14} weight="bold" />
-            Tambah
+            <Plus size={16} weight="bold" />
+            Upload / Buat
           </button>
+          
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={async () => {
+              const loadingToast = toast.loading("Menyinkronkan materi Classroom...");
+              try {
+                const res = await syncClassroomMaterials();
+                toast.dismiss(loadingToast);
+                if (res.success) {
+                  toast.success(res.message);
+                  window.location.reload();
+                } else {
+                  toast.error(res.message);
+                }
+              } catch (e: any) {
+                toast.dismiss(loadingToast);
+                toast.error("Gagal menyinkronkan materi.");
+              }
+            }}
+            className="flex items-center gap-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text)] shadow-sm hover:bg-[var(--color-surface-hover)] active:scale-95 transition-colors"
+          >
+            <Lightning size={16} weight="duotone" className="text-[var(--color-primary)]" />
+            Sync Classroom
+          </motion.button>
         </div>
 
         {courses.length > 0 ? (

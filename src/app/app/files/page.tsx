@@ -4,7 +4,7 @@ import FilesClient from "./client";
 import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: "Files & Belajar - NeLK",
+  title: "Belajar - NeLK",
 };
 
 function formatBytes(bytes?: number | null): string {
@@ -21,7 +21,7 @@ export default async function FilesPage() {
     redirect("/login");
   }
 
-  const [documents, courses] = await Promise.all([
+  const [documents, courses, notes] = await Promise.all([
     prisma.document.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
@@ -31,6 +31,10 @@ export default async function FilesPage() {
       orderBy: { createdAt: "desc" },
       include: { flashcards: true },
     }),
+    prisma.note.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   const mappedDocs = documents.map((d) => ({
@@ -39,13 +43,33 @@ export default async function FilesPage() {
     size: formatBytes(d.fileSize),
     type: d.title.toLowerCase().endsWith(".pdf") ? "pdf" : "text",
     content: d.content || "",
+    createdAt: d.createdAt,
     date: new Date(d.createdAt).toLocaleDateString("id-ID", {
       day: "numeric",
       month: "short",
       year: "numeric",
     }),
-    downloadUrl: `/api/documents/${d.id}/download`,
+    downloadUrl: d.fileUrl || `/api/documents/${d.id}/download`,
   }));
+
+  const mappedNotes = notes.map((n) => ({
+    id: n.id,
+    name: n.title || "Catatan Tanpa Judul",
+    size: "Catatan",
+    type: "text",
+    content: n.content || "",
+    createdAt: n.createdAt,
+    date: new Date(n.createdAt).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    downloadUrl: undefined,
+  }));
+
+  const allDocs = [...mappedDocs, ...mappedNotes].sort((a, b) => {
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  }).map(({ createdAt, ...rest }) => rest);
 
   const mappedCourses = courses.map((c) => ({
     id: c.id,
@@ -54,5 +78,5 @@ export default async function FilesPage() {
     flashcardCount: c.flashcards.length,
   }));
 
-  return <FilesClient initialFiles={mappedDocs} initialCourses={mappedCourses} />;
+  return <FilesClient initialFiles={allDocs} initialCourses={mappedCourses} />;
 }

@@ -948,28 +948,62 @@ export async function syncGoogleClassroom() {
       if (courseWorkRes.ok) {
         const cwData = await courseWorkRes.json();
         for (const item of (cwData.courseWork || []).slice(0, 5)) {
+          let isDone = false;
+          try {
+            const subRes = await fetch(
+              `https://classroom.googleapis.com/v1/courses/${course.id}/courseWork/${item.id}/studentSubmissions`,
+              { headers: { Authorization: `Bearer ${googleAccount.access_token}` } }
+            );
+            if (subRes.ok) {
+              const subData = await subRes.json();
+              if (subData.studentSubmissions?.[0]) {
+                const state = subData.studentSubmissions[0].state;
+                if (state === "TURNED_IN" || state === "RETURNED") {
+                  isDone = true;
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore submission fetch errors
+          }
+
           const existing = await prisma.task.findFirst({
             where: { userId: user.id, title: item.title },
           });
 
-          if (!existing) {
-            let dueDate: Date | null = null;
-            if (item.dueDate) {
-              dueDate = new Date(item.dueDate.year, (item.dueDate.month || 1) - 1, item.dueDate.day || 1);
-            }
+          let dueDate: Date | null = null;
+          if (item.dueDate) {
+            dueDate = new Date(item.dueDate.year, (item.dueDate.month || 1) - 1, item.dueDate.day || 1);
+          }
 
+          if (!existing) {
             await prisma.task.create({
               data: {
                 title: item.title,
                 description: item.description?.slice(0, 1000),
                 subject: course.name,
-                status: "TODO",
+                status: isDone ? "DONE" : "TODO",
                 priority: "MEDIUM",
                 dueDate,
+                sourceUrl: item.alternateLink,
                 userId: user.id,
               },
             });
             syncedCount++;
+          } else {
+            // Update existing if status changed
+            if (isDone && existing.status !== "DONE") {
+              await prisma.task.update({
+                where: { id: existing.id },
+                data: { status: "DONE", sourceUrl: item.alternateLink || existing.sourceUrl },
+              });
+              syncedCount++;
+            } else if (!existing.sourceUrl && item.alternateLink) {
+              await prisma.task.update({
+                where: { id: existing.id },
+                data: { sourceUrl: item.alternateLink },
+              });
+            }
           }
         }
       }
@@ -990,6 +1024,84 @@ export async function syncGoogleClassroom() {
       count: 0,
       message: "Gagal menyinkronkan tugas Google Classroom.",
     };
+  }
+}
+
+export async function syncClassroomMaterials() {
+  const user = await requireAuth();
+
+  const googleAccount = await prisma.account.findFirst({
+    where: { userId: user.id, provider: "google" },
+  });
+
+  if (!googleAccount || !googleAccount.access_token) {
+    return { success: false, count: 0, message: "Akun Google belum terhubung." };
+  }
+
+  try {
+    const res = await fetch("https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE", {
+      headers: { Authorization: `Bearer ${googleAccount.access_token}` },
+    });
+
+    if (!res.ok) return { success: false, count: 0, message: "Token Google Classroom kedaluwarsa." };
+
+    const data = await res.json();
+    const courses = data.courses || [];
+    let syncedCount = 0;
+
+    for (const course of courses.slice(0, 5)) {
+      const materialsRes = await fetch(
+        `https://classroom.googleapis.com/v1/courses/${course.id}/courseWorkMaterials`,
+        { headers: { Authorization: `Bearer ${googleAccount.access_token}` } }
+      );
+
+      if (materialsRes.ok) {
+        const matData = await materialsRes.json();
+        for (const materialItem of (matData.courseWorkMaterial || []).slice(0, 5)) {
+          if (!materialItem.materials || materialItem.materials.length === 0) continue;
+
+          for (const mat of materialItem.materials) {
+            let title = "";
+            let fileUrl = "";
+
+            if (mat.driveFile?.driveFile) {
+              title = mat.driveFile.driveFile.title;
+              fileUrl = mat.driveFile.driveFile.alternateLink;
+            } else if (mat.link) {
+              title = mat.link.title;
+              fileUrl = mat.link.url;
+            } else if (mat.youtubeVideo) {
+              title = mat.youtubeVideo.title;
+              fileUrl = mat.youtubeVideo.alternateLink;
+            }
+
+            if (!title || !fileUrl) continue;
+
+            const existing = await prisma.document.findFirst({
+              where: { userId: user.id, title },
+            });
+
+            if (!existing) {
+              await prisma.document.create({
+                data: {
+                  title,
+                  content: `Materi dari Google Classroom: ${course.name}`,
+                  fileUrl,
+                  userId: user.id,
+                },
+              });
+              syncedCount++;
+            }
+          }
+        }
+      }
+    }
+
+    revalidatePath("/app/files");
+    return { success: true, count: syncedCount, message: `Berhasil menyinkronkan ${syncedCount} materi.` };
+  } catch (err) {
+    logger.error("Classroom materials sync error", err);
+    return { success: false, count: 0, message: "Gagal menyinkronkan materi Google Classroom." };
   }
 }
 

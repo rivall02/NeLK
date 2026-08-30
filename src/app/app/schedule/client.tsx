@@ -688,8 +688,15 @@ export default function ScheduleClient({
                         content = data.text || "";
                       } else if (file.type.startsWith("text/")) {
                         content = await file.text();
+                      } else if (file.type.startsWith("image/")) {
+                        const reader = new FileReader();
+                        content = await new Promise<string>((resolve, reject) => {
+                          reader.onload = () => resolve(reader.result as string);
+                          reader.onerror = reject;
+                          reader.readAsDataURL(file);
+                        });
                       } else {
-                        toast.error("Format file tidak didukung. Gunakan PDF atau file teks.");
+                        toast.error("Format file tidak didukung. Gunakan PDF, Teks, atau Gambar.");
                         setIsExtracting(false);
                         return;
                       }
