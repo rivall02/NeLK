@@ -265,7 +265,7 @@ export async function deleteDocument(id: string) {
 // ----------------------------------------------------------------------
 // AI ACTIONS
 // ----------------------------------------------------------------------
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 
 export async function summarizeContent(content: string) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -528,10 +528,10 @@ ${notes.map(n => `Judul: ${n.title}\nKonten Singkat: ${n.content?.substring(0, 2
             name: "create_task",
             description: "Buat tugas (task) baru untuk pengguna.",
             parameters: {
-              type: "OBJECT",
+              type: SchemaType.OBJECT,
               properties: {
-                title: { type: "STRING", description: "Judul tugas" },
-                priority: { type: "STRING", description: "Prioritas: high, medium, low" }
+                title: { type: SchemaType.STRING, description: "Judul tugas" },
+                priority: { type: SchemaType.STRING, description: "Prioritas: high, medium, low" }
               },
               required: ["title"]
             }
@@ -540,11 +540,11 @@ ${notes.map(n => `Judul: ${n.title}\nKonten Singkat: ${n.content?.substring(0, 2
             name: "create_event",
             description: "Buat jadwal/event di kalender pengguna.",
             parameters: {
-              type: "OBJECT",
+              type: SchemaType.OBJECT,
               properties: {
-                title: { type: "STRING", description: "Judul kegiatan" },
-                startTime: { type: "STRING", description: "Waktu mulai (format HH:MM)" },
-                endTime: { type: "STRING", description: "Waktu selesai (format HH:MM)" }
+                title: { type: SchemaType.STRING, description: "Judul kegiatan" },
+                startTime: { type: SchemaType.STRING, description: "Waktu mulai (format HH:MM)" },
+                endTime: { type: SchemaType.STRING, description: "Waktu selesai (format HH:MM)" }
               },
               required: ["title", "startTime", "endTime"]
             }
