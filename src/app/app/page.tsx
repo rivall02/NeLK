@@ -14,7 +14,7 @@ import {
   Trophy,
 } from "@phosphor-icons/react";
 import Link from "next/link";
-import { getProactiveInsight } from "@/lib/actions";
+
 
 const upcomingTasks = [
   { title: "Tugas Basis Data — ERD Perpustakaan", due: "Besok, 23:59", priority: "high" },
@@ -36,12 +36,12 @@ const recentNotes = [
 
 export default function DashboardPage() {
   const greeting = getGreeting();
-  const [proactiveInsight, setProactiveInsight] = React.useState<string | null>(null);
+  const [noteSummary, setNoteSummary] = React.useState<{title: string, summary: string} | null>(null);
   const [userProfile, setUserProfile] = React.useState<{xp: number, level: number, contextMode: string} | null>(null);
 
   React.useEffect(() => {
     import("@/lib/actions").then(actions => {
-      actions.getProactiveInsight().then(insight => setProactiveInsight(insight));
+      actions.getRandomNoteSummary().then(res => setNoteSummary(res as any));
       actions.getUserProfile().then(profile => {
         if (profile) setUserProfile(profile as any);
       });
@@ -112,49 +112,6 @@ export default function DashboardPage() {
         </div>
       </motion.div>
 
-      {/* Quick Actions - Adaptive */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
-        className="grid grid-cols-2 gap-3 sm:grid-cols-4"
-      >
-        {(contextMode === "EXAM_WEEK" ? [
-          { label: "Buat Ringkasan", icon: Brain, href: "/app/ai", color: "var(--color-error)" },
-          { label: "Latihan Kuis", icon: CheckSquare, href: "/app/courses", color: "var(--color-accent-pink)" },
-          { label: "Cari Catatan", icon: Notebook, href: "/app/notes", color: "var(--color-primary)" },
-          { label: "Tanya AI", icon: Lightning, href: "/app/ai", color: "var(--color-ai)" },
-        ] : contextMode === "VACATION" ? [
-          { label: "Komunitas", icon: Target, href: "/app/community", color: "var(--color-primary)" },
-          { label: "Cek Strava", icon: Lightning, href: "/app/fitness", color: "var(--color-accent-pink)" },
-          { label: "Jurnal Liburan", icon: Notebook, href: "/app/notes", color: "var(--color-accent-lime)" },
-          { label: "Tanya AI", icon: Brain, href: "/app/ai", color: "var(--color-ai)" },
-        ] : [
-          { label: "Catatan Baru", icon: Notebook, href: "/app/notes", color: "var(--color-primary)" },
-          { label: "Tugas Baru", icon: CheckSquare, href: "/app/tasks", color: "var(--color-accent-lime)" },
-          { label: "Lihat Jadwal", icon: CalendarDots, href: "/app/schedule", color: "var(--color-accent-pink)" },
-          { label: "Tanya AI", icon: Brain, href: "/app/ai", color: "var(--color-ai)" },
-        ]).map((action, i) => {
-          const Icon = action.icon;
-          return (
-            <Link key={action.label} href={action.href}>
-              <motion.div
-                whileHover={{ y: -2, transition: { duration: 0.15 } }}
-                whileTap={{ scale: 0.97 }}
-                className="flex items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]"
-              >
-                <div
-                  className="flex h-10 w-10 items-center justify-center rounded-xl shrink-0"
-                  style={{ backgroundColor: `color-mix(in srgb, ${action.color} 12%, transparent)` }}
-                >
-                  <Icon size={20} weight="duotone" style={{ color: action.color }} />
-                </div>
-                <span className="text-sm font-medium text-[var(--color-text)] truncate">{action.label}</span>
-              </motion.div>
-            </Link>
-          );
-        })}
-      </motion.div>
 
       {/* Main Grid - Adaptive */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -279,30 +236,36 @@ export default function DashboardPage() {
                 : "bg-gradient-to-br from-[var(--color-ai-light)] to-[var(--color-surface)]"
             }`}
           >
-            <div className="flex items-center gap-2 mb-3">
-              <div className="relative">
-                <Brain size={18} weight="duotone" className="text-[var(--color-ai)]" />
-                <motion.div
-                  animate={{ scale: [1, 1.4, 1], opacity: [0.4, 0.8, 0.4] }}
-                  transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-                  className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--color-ai)]"
-                />
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Brain size={18} weight="duotone" className="text-[var(--color-ai)]" />
+                  <motion.div
+                    animate={{ scale: [1, 1.4, 1], opacity: [0.4, 0.8, 0.4] }}
+                    transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                    className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--color-ai)]"
+                  />
+                </div>
+                <h2 className="text-base font-semibold text-[var(--color-text)]">Insight AI</h2>
               </div>
-              <h2 className="text-base font-semibold text-[var(--color-text)]">Insight AI</h2>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-ai)] bg-[var(--color-ai-light)] px-2 py-0.5 rounded-full">
+                Random Recall
+              </span>
             </div>
-            <p className="text-sm leading-relaxed text-[var(--color-text-secondary)]">
-              {contextMode === "EXAM_WEEK" 
-                ? "AI telah menyiapkan 15 pertanyaan flashcard berdasarkan catatanmu. Kerjakan sekarang untuk pemanasan otak sebelum ujian!"
-                : contextMode === "VACATION"
-                ? "Berdasarkan data komunitas, banyak mahasiswa jurusanmu yang mengisi liburan dengan mempelajari Node.js. Ingin aku buatkan modul dasarnya?"
-                : (proactiveInsight || "Sedang menganalisis catatan dan tugasmu...")}
-            </p>
+            {noteSummary && noteSummary.title !== "Insight AI" && (
+              <div className="mb-2 text-xs font-semibold text-[var(--color-text)] px-2 py-1 bg-[var(--color-bg)] rounded-md border border-[var(--color-border)] inline-block">
+                📚 {noteSummary.title}
+              </div>
+            )}
+            <div className="text-sm leading-relaxed text-[var(--color-text-secondary)] whitespace-pre-wrap">
+              {noteSummary ? noteSummary.summary : "Sedang menganalisis catatanmu..."}
+            </div>
             <Link
-              href="/app/ai"
+              href="/app/notes"
               className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-ai)] hover:underline"
             >
               <Lightning size={12} weight="fill" />
-              {contextMode === "EXAM_WEEK" ? "Mulai AI Flashcards" : "Buka AI Asisten"}
+              Lihat Semua Catatan
             </Link>
           </motion.div>
 

@@ -633,6 +633,56 @@ export async function getProactiveInsight() {
   }
 }
 
+export async function getRandomNoteSummary() {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return { title: "Insight AI", summary: "Insight AI belum dikonfigurasi dengan API Key." };
+
+  try {
+    // Get total count of user's notes
+    const count = await prisma.note.count({
+      where: { userId: session.user.id }
+    });
+
+    if (count === 0) {
+      return { 
+        title: "Insight AI", 
+        summary: "Sepertinya kamu belum memiliki catatan. Mulai buat catatan agar AI bisa memberikan ringkasan materi untukmu!" 
+      };
+    }
+
+    // Pick a random skip index
+    const skip = Math.floor(Math.random() * count);
+    const randomNote = await prisma.note.findFirst({
+      where: { userId: session.user.id },
+      skip: skip
+    });
+
+    if (!randomNote) return null;
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+    const prompt = `Berikan 3-4 poin ringkasan yang menarik dan mudah diingat dari materi ini:
+    
+Judul: ${randomNote.title}
+Konten: ${randomNote.content}
+
+Buatlah ringkasan dalam bentuk bullet points pendek.`;
+
+    const result = await model.generateContent(prompt);
+    
+    return {
+      title: randomNote.title,
+      summary: result.response.text()
+    };
+  } catch (e) {
+    console.error("Random Note Insight error", e);
+    return { title: "Insight AI", summary: "Gagal memuat ringkasan materi. Tetap semangat belajar!" };
+  }
+}
+
 // ----------------------------------------------------------------------
 // GAMIFICATION ACTIONS (V8)
 // ----------------------------------------------------------------------
