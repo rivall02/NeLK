@@ -69,50 +69,105 @@ export function Sidebar() {
       <div className="fixed bottom-4 left-4 right-4 z-50 pb-[env(safe-area-inset-bottom)] md:hidden pointer-events-none">
         <div className="relative mx-auto w-full max-w-md pointer-events-auto">
           {/* Background panel (Floating Box) */}
-          <div className="absolute bottom-0 left-0 right-0 h-[72px] bg-[var(--color-surface)] rounded-[32px] shadow-[0_8px_30px_rgba(0,0,0,0.12)] border border-[var(--color-border)]/50" />
+          <div className="absolute bottom-0 left-0 right-0 h-[72px] bg-[var(--color-surface)] rounded-[32px] shadow-[0_8px_30px_rgba(0,0,0,0.12)] border border-[var(--color-border)]/50 flex items-center justify-around px-2" />
           
-          <div className="relative flex h-[106px] items-end overflow-x-auto scrollbar-hide snap-x snap-mandatory">
+          <div className="relative flex h-[106px] items-end justify-around pb-[17px]">
             
-            {/* Animated Indicator Track */}
-            <div className="absolute top-0 left-0 flex h-full" style={{ width: `${allNavItems.length * 72}px` }}>
-              {mounted && (
-                <motion.div
-                  className="absolute top-0 flex h-full w-[72px] items-start justify-center pointer-events-none"
-                  initial={false}
-                  animate={{ x: selectedIndex * 72 }}
-                  transition={{ type: "spring", stiffness: 350, damping: 25 }}
-                >
-                  {/* Floating Bubble (Separated visually by matching page background) */}
-                  <div className="relative -top-1 flex shrink-0 h-20 w-20 items-center justify-center rounded-full bg-[var(--color-primary)] shadow-lg shadow-[var(--color-primary)]/40 border-[8px] border-[var(--color-bg)]" />
-                </motion.div>
-              )}
-            </div>
-
-            {allNavItems.map((item, index) => {
+            {allNavItems.slice(0, 4).map((item, index) => {
               const Icon = item.icon;
-              const isActive = selectedIndex === index;
+              const isActive = pathname === item.href;
               
               return (
                 <button
                   key={item.label}
-                  className="relative z-10 flex h-[72px] shrink-0 w-[72px] flex-col items-center justify-center gap-1 snap-center"
+                  className="relative z-10 flex h-14 w-14 flex-col items-center justify-center gap-1"
                 >
                   <Link href={item.href} className="flex flex-col items-center justify-center h-full w-full outline-none">
                      <Icon 
                         size={24} 
                         weight={isActive ? "fill" : "regular"} 
-                        className={`transition-all duration-300 ${isActive ? "text-white -translate-y-[28px]" : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"}`} 
+                        className={`transition-all duration-300 ${isActive ? "text-[var(--color-primary)] -translate-y-1" : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"}`} 
                      />
-                     <span className={`absolute bottom-2 text-[10px] font-semibold tracking-wide transition-all duration-300 ${isActive ? "text-[var(--color-primary)] opacity-100 translate-y-0" : "text-[var(--color-text-muted)] opacity-0 translate-y-4"}`}>
-                       {item.label}
+                     <span className={`text-[10px] font-semibold tracking-wide transition-all duration-300 ${isActive ? "text-[var(--color-primary)] opacity-100" : "text-[var(--color-text-muted)] opacity-0 -translate-y-2"}`}>
+                       {isActive ? item.label : ""}
                      </span>
                   </Link>
                 </button>
               );
             })}
+
+            {/* "Menu" Button */}
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="relative z-10 flex h-14 w-14 flex-col items-center justify-center gap-1"
+            >
+              <div className="flex flex-col items-center justify-center h-full w-full outline-none">
+                <List 
+                  size={24} 
+                  weight="regular"
+                  className={`transition-all duration-300 ${mobileMenuOpen ? "text-[var(--color-primary)] -translate-y-1" : "text-[var(--color-text-muted)]"}`} 
+                />
+                <span className={`text-[10px] font-semibold tracking-wide transition-all duration-300 ${mobileMenuOpen ? "text-[var(--color-primary)] opacity-100" : "text-[var(--color-text-muted)] opacity-0 -translate-y-2"}`}>
+                  {mobileMenuOpen ? "Menu" : ""}
+                </span>
+              </div>
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Mobile "More Menu" Drawer */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileMenuOpen(false)}
+              className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm md:hidden"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed bottom-0 left-0 right-0 z-[70] flex flex-col rounded-t-[32px] bg-[var(--color-surface)] p-6 pb-[calc(24px+env(safe-area-inset-bottom))] shadow-2xl md:hidden max-h-[85vh] border-t border-[var(--color-border)]"
+            >
+              <div className="mb-6 flex items-center justify-between">
+                <h3 className="text-xl font-bold text-[var(--color-text)]">Semua Menu</h3>
+                <button
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-bg)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="grid grid-cols-4 gap-4 overflow-y-auto scrollbar-hide">
+                {allNavItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.label}
+                      href={item.href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="flex flex-col items-center gap-2"
+                    >
+                      <div className={`flex h-14 w-14 items-center justify-center rounded-2xl transition-colors ${isActive ? 'bg-[var(--color-primary)] text-white shadow-lg shadow-[var(--color-primary)]/40' : 'bg-[var(--color-bg)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)]/50'}`}>
+                        <Icon size={24} weight={isActive ? "fill" : "duotone"} />
+                      </div>
+                      <span className={`text-[11px] font-medium text-center leading-tight ${isActive ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-secondary)]'}`}>
+                        {item.label}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Desktop Sidebar */}
       <motion.aside
