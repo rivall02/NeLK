@@ -348,28 +348,47 @@ export async function autoScheduleStudy() {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  // Mock auto-schedule based on AI
-  const autoEvents = [
-    { title: "Review Matematika Bab 3", startTime: "16:00", endTime: "17:30" },
-    { title: "Kerjakan Makalah Sejarah", startTime: "19:00", endTime: "21:00" },
-  ];
+  // Get today's events to find an empty slot
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const createdEvents = [];
-  for (const ev of autoEvents) {
-    const created = await prisma.event.create({
-      data: {
-        title: ev.title,
-        date: new Date(),
-        startTime: ev.startTime,
-        endTime: ev.endTime,
-        userId: session.user.id
+  const existingEvents = await prisma.event.findMany({
+    where: {
+      userId: session.user.id,
+      date: {
+        gte: today,
+        lt: tomorrow
       }
-    });
-    createdEvents.push(created);
+    }
+  });
+
+  // Simple heuristic: Schedule study at 19:00 - 21:00 if it doesn't conflict
+  let startTime = "19:00";
+  let endTime = "21:00";
+
+  const conflict = existingEvents.some(ev => {
+    return ev.startTime === startTime || ev.endTime === endTime;
+  });
+
+  if (conflict) {
+    startTime = "21:00";
+    endTime = "23:00";
   }
 
+  const created = await prisma.event.create({
+    data: {
+      title: "Sesi Belajar Fokus (AI Auto-Scheduled)",
+      date: new Date(),
+      startTime,
+      endTime,
+      userId: session.user.id
+    }
+  });
+
   revalidatePath("/app/schedule");
-  return { success: true, count: createdEvents.length };
+  return { success: true, count: 1 };
 }
 
 // ----------------------------------------------------------------------
@@ -499,9 +518,41 @@ Data Catatan Terbaru User:
 ${notes.map(n => `Judul: ${n.title}\nKonten Singkat: ${n.content?.substring(0, 200)}...`).join('\n\n')}
 `;
 
-    // 2. Generate
+    // 2. Generate with Function Calling
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      tools: [{
+        functionDeclarations: [
+          {
+            name: "create_task",
+            description: "Buat tugas (task) baru untuk pengguna.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                title: { type: "STRING", description: "Judul tugas" },
+                priority: { type: "STRING", description: "Prioritas: high, medium, low" }
+              },
+              required: ["title"]
+            }
+          },
+          {
+            name: "create_event",
+            description: "Buat jadwal/event di kalender pengguna.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                title: { type: "STRING", description: "Judul kegiatan" },
+                startTime: { type: "STRING", description: "Waktu mulai (format HH:MM)" },
+                endTime: { type: "STRING", description: "Waktu selesai (format HH:MM)" }
+              },
+              required: ["title", "startTime", "endTime"]
+            }
+          }
+        ]
+      }]
+    });
+    
     const prompt = `Sebagai asisten AI NeLK (Personal Academic Assistant), jawablah pertanyaan berikut dengan singkat, informatif, dan membantu.
     
 Berikut adalah konteks data pengguna yang relevan:
@@ -510,7 +561,43 @@ ${contextText}
 Pertanyaan User: ${query}`;
     
     const result = await model.generateContent(prompt);
-    return result.response.text();
+    const response = result.response;
+    
+    // Check if AI wants to call a function
+    const functionCalls = response.functionCalls();
+    if (functionCalls && functionCalls.length > 0) {
+      const call = functionCalls[0];
+      
+      if (call.name === "create_task") {
+        const args = call.args as any;
+        await prisma.task.create({
+          data: {
+            title: args.title,
+            status: "todo",
+            userId: session.user.id
+          }
+        });
+        revalidatePath("/app/tasks");
+        return `Tugas "${args.title}" telah berhasil ditambahkan ke daftarmu!`;
+      }
+      
+      if (call.name === "create_event") {
+        const args = call.args as any;
+        await prisma.event.create({
+          data: {
+            title: args.title,
+            date: new Date(),
+            startTime: args.startTime,
+            endTime: args.endTime,
+            userId: session.user.id
+          }
+        });
+        revalidatePath("/app/schedule");
+        return `Jadwal "${args.title}" dari jam ${args.startTime} hingga ${args.endTime} telah ditambahkan ke kalendermu!`;
+      }
+    }
+
+    return response.text();
   } catch (e) {
     console.error("AI Chat error", e);
     return "Maaf, gagal memproses permintaan. Silakan periksa koneksi atau coba lagi nanti.";
@@ -578,7 +665,7 @@ export async function getUserProfile() {
 
   return await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { xp: true, level: true }
+    select: { xp: true, level: true, contextMode: true, university: true, major: true }
   });
 }
 
@@ -640,4 +727,31 @@ export async function generateTaskReminders() {
       });
     }
   }
+}
+
+// ----------------------------------------------------------------------
+// CONTEXT & PROFILE ACTIONS (V10)
+// ----------------------------------------------------------------------
+export async function updateContextMode(mode: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { contextMode: mode }
+  });
+
+  revalidatePath("/app");
+}
+
+export async function updateUserProfile(data: { university?: string, major?: string }) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data
+  });
+
+  revalidatePath("/app/settings");
 }

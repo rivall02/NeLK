@@ -20,6 +20,7 @@ import {
   GraduationCap,
   UsersThree,
   Sneaker,
+  Trophy
 } from "@phosphor-icons/react";
 
 const navItems = [
@@ -32,6 +33,7 @@ const navItems = [
   { label: "Komunitas", href: "/app/community", icon: UsersThree },
   { label: "Kesehatan", href: "/app/fitness", icon: Sneaker },
   { label: "AI", href: "/app/ai", icon: Brain },
+  { label: "Gamifikasi", href: "/app/gamification", icon: Trophy },
   { label: "Pengaturan", href: "/app/settings", icon: Gear },
 ];
 

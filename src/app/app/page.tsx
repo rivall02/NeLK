@@ -37,21 +37,28 @@ const recentNotes = [
 export default function DashboardPage() {
   const greeting = getGreeting();
   const [proactiveInsight, setProactiveInsight] = React.useState<string | null>(null);
-  const [userProfile, setUserProfile] = React.useState<{xp: number, level: number} | null>(null);
+  const [userProfile, setUserProfile] = React.useState<{xp: number, level: number, contextMode: string} | null>(null);
 
   React.useEffect(() => {
     import("@/lib/actions").then(actions => {
       actions.getProactiveInsight().then(insight => setProactiveInsight(insight));
       actions.getUserProfile().then(profile => {
-        if (profile) setUserProfile(profile);
+        if (profile) setUserProfile(profile as any);
       });
     });
   }, []);
 
   const level = userProfile?.level || 1;
   const xp = userProfile?.xp || 0;
-  const xpForNextLevel = 1000; // Simplified
+  const xpForNextLevel = 1000;
   const xpProgress = Math.min(100, Math.round((xp % xpForNextLevel) / xpForNextLevel * 100));
+  const contextMode = userProfile?.contextMode || "NORMAL";
+
+  const setContext = async (mode: string) => {
+    setUserProfile(prev => prev ? { ...prev, contextMode: mode } : null);
+    const actions = await import("@/lib/actions");
+    await actions.updateContextMode(mode);
+  };
 
   return (
     <div className="space-y-8">
@@ -63,43 +70,71 @@ export default function DashboardPage() {
         className="flex flex-col md:flex-row md:items-end justify-between gap-4"
       >
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text)] md:text-3xl">
+          <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text)] md:text-3xl flex items-center gap-2">
             {greeting}, Rhys
+            <span className="text-sm font-medium px-2 py-1 bg-[var(--color-primary-light)] text-[var(--color-primary)] rounded-md">
+              {contextMode === "NORMAL" ? "Normal Semester" : contextMode === "EXAM_WEEK" ? "Exam Week" : "Vacation"} Mode
+            </span>
           </h1>
           <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-            Kamu punya 3 tugas mendesak dan 4 jadwal hari ini.
+            {contextMode === "EXAM_WEEK" 
+              ? "Minggu ujian! Fokus ke materi penting dan tugas mendesak." 
+              : contextMode === "VACATION"
+              ? "Waktunya bersantai dan kembangkan hobi di luar akademik."
+              : "Kamu punya 3 tugas mendesak dan 4 jadwal hari ini."}
           </p>
         </div>
 
-        <div className="flex items-center gap-3 bg-[var(--color-surface)] border border-[var(--color-border)] p-3 rounded-2xl shadow-sm">
-          <div className="w-12 h-12 rounded-xl bg-yellow-100 text-yellow-600 flex items-center justify-center">
-            <Trophy size={24} weight="fill" />
-          </div>
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-sm font-bold text-[var(--color-text)]">Level {level} Scholar</span>
-              <span className="text-xs font-semibold text-[var(--color-text-muted)]">{xp % xpForNextLevel}/{xpForNextLevel} XP</span>
+        <div className="flex gap-2 items-center">
+          <select 
+            value={contextMode} 
+            onChange={(e) => setContext(e.target.value)}
+            className="text-xs bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl px-2 py-1 outline-none text-[var(--color-text)] cursor-pointer hover:border-[var(--color-primary)] transition-colors"
+          >
+            <option value="NORMAL">Normal</option>
+            <option value="EXAM_WEEK">Exam Week</option>
+            <option value="VACATION">Vacation</option>
+          </select>
+          <div className="flex items-center gap-3 bg-[var(--color-surface)] border border-[var(--color-border)] p-3 rounded-2xl shadow-sm">
+            <div className="w-12 h-12 rounded-xl bg-yellow-100 text-yellow-600 flex items-center justify-center">
+              <Trophy size={24} weight="fill" />
             </div>
-            <div className="w-32 h-2 bg-[var(--color-bg)] rounded-full overflow-hidden">
-              <div className="h-full bg-yellow-500 rounded-full transition-all duration-500" style={{ width: `${xpProgress}%` }} />
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-sm font-bold text-[var(--color-text)]">Level {level}</span>
+                <span className="text-xs font-semibold text-[var(--color-text-muted)]">{xp % xpForNextLevel}/{xpForNextLevel}</span>
+              </div>
+              <div className="w-24 h-2 bg-[var(--color-bg)] rounded-full overflow-hidden">
+                <div className="h-full bg-yellow-500 rounded-full transition-all duration-500" style={{ width: `${xpProgress}%` }} />
+              </div>
             </div>
           </div>
         </div>
       </motion.div>
 
-      {/* Quick Actions */}
+      {/* Quick Actions - Adaptive */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1 }}
         className="grid grid-cols-2 gap-3 sm:grid-cols-4"
       >
-        {[
+        {(contextMode === "EXAM_WEEK" ? [
+          { label: "Buat Ringkasan", icon: Brain, href: "/app/ai", color: "var(--color-error)" },
+          { label: "Latihan Kuis", icon: CheckSquare, href: "/app/courses", color: "var(--color-accent-pink)" },
+          { label: "Cari Catatan", icon: Notebook, href: "/app/notes", color: "var(--color-primary)" },
+          { label: "Tanya AI", icon: Lightning, href: "/app/ai", color: "var(--color-ai)" },
+        ] : contextMode === "VACATION" ? [
+          { label: "Komunitas", icon: Target, href: "/app/community", color: "var(--color-primary)" },
+          { label: "Cek Strava", icon: Lightning, href: "/app/fitness", color: "var(--color-accent-pink)" },
+          { label: "Jurnal Liburan", icon: Notebook, href: "/app/notes", color: "var(--color-accent-lime)" },
+          { label: "Tanya AI", icon: Brain, href: "/app/ai", color: "var(--color-ai)" },
+        ] : [
           { label: "Catatan Baru", icon: Notebook, href: "/app/notes", color: "var(--color-primary)" },
           { label: "Tugas Baru", icon: CheckSquare, href: "/app/tasks", color: "var(--color-accent-lime)" },
           { label: "Lihat Jadwal", icon: CalendarDots, href: "/app/schedule", color: "var(--color-accent-pink)" },
           { label: "Tanya AI", icon: Brain, href: "/app/ai", color: "var(--color-ai)" },
-        ].map((action, i) => {
+        ]).map((action, i) => {
           const Icon = action.icon;
           return (
             <Link key={action.label} href={action.href}>
@@ -109,176 +144,228 @@ export default function DashboardPage() {
                 className="flex items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]"
               >
                 <div
-                  className="flex h-10 w-10 items-center justify-center rounded-xl"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl shrink-0"
                   style={{ backgroundColor: `color-mix(in srgb, ${action.color} 12%, transparent)` }}
                 >
                   <Icon size={20} weight="duotone" style={{ color: action.color }} />
                 </div>
-                <span className="text-sm font-medium text-[var(--color-text)]">{action.label}</span>
+                <span className="text-sm font-medium text-[var(--color-text)] truncate">{action.label}</span>
               </motion.div>
             </Link>
           );
         })}
       </motion.div>
 
-      {/* Main Grid */}
+      {/* Main Grid - Adaptive */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Tasks — 2 col */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.2 }}
-          className="lg:col-span-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-sm)]"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Target size={18} weight="duotone" className="text-[var(--color-accent-lime)]" />
-              <h2 className="text-base font-semibold text-[var(--color-text)]">Tugas Mendatang</h2>
-            </div>
-            <Link
-              href="/app/tasks"
-              className="flex items-center gap-1 text-xs font-medium text-[var(--color-primary)] hover:underline"
-            >
-              Lihat Semua <ArrowRight size={12} />
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {upcomingTasks.map((task, i) => (
-              <motion.div
-                key={task.title}
-                initial={{ opacity: 0, x: -12 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.3, delay: 0.3 + i * 0.06 }}
-                className="group flex items-center gap-4 rounded-xl px-4 py-3 transition-colors hover:bg-[var(--color-surface-hover)]"
-              >
-                <button className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 border-[var(--color-border)] transition-colors group-hover:border-[var(--color-primary)]" aria-label="Tandai selesai" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[var(--color-text)] truncate">{task.title}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <Clock size={12} className="text-[var(--color-text-muted)]" />
-                    <span className="text-xs text-[var(--color-text-muted)]">{task.due}</span>
-                  </div>
-                </div>
-                <div
-                  className={`h-2 w-2 shrink-0 rounded-full ${
-                    task.priority === "high" ? "bg-[var(--color-error)]" : "bg-[var(--color-accent-yellow)]"
-                  }`}
-                />
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Schedule — 1 col */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.25 }}
-          className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-sm)]"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <CalendarDots size={18} weight="duotone" className="text-[var(--color-primary)]" />
-              <h2 className="text-base font-semibold text-[var(--color-text)]">Hari Ini</h2>
-            </div>
-            <Link
-              href="/app/schedule"
-              className="flex items-center gap-1 text-xs font-medium text-[var(--color-primary)] hover:underline"
-            >
-              Kalender <ArrowRight size={12} />
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {todaySchedule.map((item, i) => (
-              <motion.div
-                key={item.title}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.3 + i * 0.06 }}
-                className="flex items-start gap-3"
-              >
-                <span className="mt-0.5 text-xs font-mono text-[var(--color-text-muted)] w-10 shrink-0">
-                  {item.time}
-                </span>
-                <div className="flex-1 rounded-lg border-l-2 pl-3 py-1" style={{ borderColor: item.color }}>
-                  <p className="text-sm font-medium text-[var(--color-text)]">{item.title}</p>
-                  <p className="text-xs text-[var(--color-text-muted)] capitalize">{item.type}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Recent Notes */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.3 }}
-          className="lg:col-span-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-sm)]"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Notebook size={18} weight="duotone" className="text-[var(--color-primary)]" />
-              <h2 className="text-base font-semibold text-[var(--color-text)]">Catatan Terbaru</h2>
-            </div>
-            <Link
-              href="/app/notes"
-              className="flex items-center gap-1 text-xs font-medium text-[var(--color-primary)] hover:underline"
-            >
-              Semua Catatan <ArrowRight size={12} />
-            </Link>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {recentNotes.map((note, i) => (
-              <motion.div
-                key={note.title}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.35 + i * 0.06 }}
-                whileHover={{ y: -2, transition: { duration: 0.15 } }}
-                className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-4 transition-shadow hover:shadow-[var(--shadow-sm)] cursor-pointer"
-              >
-                <p className="text-sm font-medium text-[var(--color-text)]">{note.title}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="rounded-full bg-[var(--color-primary-light)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-primary)]">
-                    {note.subject}
-                  </span>
-                  <span className="text-xs text-[var(--color-text-muted)]">{note.updatedAt}</span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* AI Insight */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.35 }}
-          className="rounded-2xl border border-[var(--color-border)] bg-gradient-to-br from-[var(--color-ai-light)] to-[var(--color-surface)] p-6 shadow-[var(--shadow-sm)]"
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <div className="relative">
-              <Brain size={18} weight="duotone" className="text-[var(--color-ai)]" />
-              <motion.div
-                animate={{ scale: [1, 1.4, 1], opacity: [0.4, 0.8, 0.4] }}
-                transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--color-ai)]"
-              />
-            </div>
-            <h2 className="text-base font-semibold text-[var(--color-text)]">Insight AI</h2>
-          </div>
-          <p className="text-sm leading-relaxed text-[var(--color-text-secondary)]">
-            {proactiveInsight || "Sedang menganalisis catatan dan tugasmu..."}
-          </p>
-          <Link
-            href="/app/ai"
-            className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-ai)] hover:underline"
+        {contextMode === "EXAM_WEEK" ? (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+            className="lg:col-span-2 rounded-2xl border border-[var(--color-error)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-sm)]"
           >
-            <Lightning size={12} weight="fill" />
-            Buka AI Asisten
-          </Link>
-        </motion.div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Target size={18} weight="duotone" className="text-[var(--color-error)]" />
+                <h2 className="text-base font-semibold text-[var(--color-text)]">Fokus Ujian & Deadline Dekat</h2>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {[
+                { title: "Review Bab Kalkulus (Final Exam)", due: "Besok, 08:00", priority: "high" },
+                { title: "Simulasi Kuis Basis Data", due: "Hari ini, 19:00", priority: "high" }
+              ].map((task, i) => (
+                <div key={i} className="group flex items-center gap-4 rounded-xl px-4 py-3 bg-[var(--color-bg)] border-l-4 border-[var(--color-error)]">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-[var(--color-error)] truncate">{task.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Clock size={12} className="text-[var(--color-text-muted)]" />
+                      <span className="text-xs font-semibold text-[var(--color-text)]">{task.due}</span>
+                    </div>
+                  </div>
+                  <button className="text-xs font-medium bg-[var(--color-error)] text-white px-3 py-1.5 rounded-lg hover:bg-red-600 transition-colors">
+                    Mulai Belajar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        ) : contextMode === "VACATION" ? (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+            className="lg:col-span-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-sm)]"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Trophy size={18} weight="duotone" className="text-[var(--color-primary)]" />
+                <h2 className="text-base font-semibold text-[var(--color-text)]">Personal Goals & Lifestyle</h2>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <p className="text-sm text-[var(--color-text-secondary)] mb-2">Liburan adalah waktu yang tepat untuk recharge dan hobi.</p>
+              {[
+                { title: "Morning Run 5K", stat: "3/5 hari minggu ini", color: "var(--color-accent-pink)" },
+                { title: "Baca Buku Non-Fiksi", stat: "Bab 4/10", color: "var(--color-primary)" }
+              ].map((goal, i) => (
+                <div key={i} className="flex items-center gap-4 rounded-xl px-4 py-3 bg-[var(--color-bg)] border border-[var(--color-border)]">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[var(--color-text)] truncate">{goal.title}</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5">{goal.stat}</p>
+                  </div>
+                  <button className="text-xs font-medium bg-[var(--color-surface)] border border-[var(--color-border)] px-3 py-1.5 rounded-lg hover:border-[var(--color-primary)] transition-colors">
+                    Update Progress
+                  </button>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+            className="lg:col-span-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-sm)]"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Target size={18} weight="duotone" className="text-[var(--color-accent-lime)]" />
+                <h2 className="text-base font-semibold text-[var(--color-text)]">Tugas Mendatang</h2>
+              </div>
+              <Link href="/app/tasks" className="flex items-center gap-1 text-xs font-medium text-[var(--color-primary)] hover:underline">
+                Lihat Semua <ArrowRight size={12} />
+              </Link>
+            </div>
+            <div className="space-y-3">
+              {upcomingTasks.map((task, i) => (
+                <motion.div
+                  key={task.title}
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3, delay: 0.3 + i * 0.06 }}
+                  className="group flex items-center gap-4 rounded-xl px-4 py-3 transition-colors hover:bg-[var(--color-surface-hover)]"
+                >
+                  <button className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 border-[var(--color-border)] transition-colors group-hover:border-[var(--color-primary)]" aria-label="Tandai selesai" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[var(--color-text)] truncate">{task.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Clock size={12} className="text-[var(--color-text-muted)]" />
+                      <span className="text-xs text-[var(--color-text-muted)]">{task.due}</span>
+                    </div>
+                  </div>
+                  <div
+                    className={`h-2 w-2 shrink-0 rounded-full ${
+                      task.priority === "high" ? "bg-[var(--color-error)]" : "bg-[var(--color-accent-yellow)]"
+                    }`}
+                  />
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Schedule / AI Insight Column */}
+        <div className="space-y-6">
+          {/* Proactive Insight */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.35 }}
+            className={`rounded-2xl border border-[var(--color-border)] p-6 shadow-[var(--shadow-sm)] ${
+              contextMode === "EXAM_WEEK" 
+                ? "bg-gradient-to-br from-red-50 to-[var(--color-surface)] dark:from-red-950/20" 
+                : "bg-gradient-to-br from-[var(--color-ai-light)] to-[var(--color-surface)]"
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <div className="relative">
+                <Brain size={18} weight="duotone" className="text-[var(--color-ai)]" />
+                <motion.div
+                  animate={{ scale: [1, 1.4, 1], opacity: [0.4, 0.8, 0.4] }}
+                  transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                  className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--color-ai)]"
+                />
+              </div>
+              <h2 className="text-base font-semibold text-[var(--color-text)]">Insight AI</h2>
+            </div>
+            <p className="text-sm leading-relaxed text-[var(--color-text-secondary)]">
+              {contextMode === "EXAM_WEEK" 
+                ? "AI telah menyiapkan 15 pertanyaan flashcard berdasarkan catatanmu. Kerjakan sekarang untuk pemanasan otak sebelum ujian!"
+                : contextMode === "VACATION"
+                ? "Berdasarkan data komunitas, banyak mahasiswa jurusanmu yang mengisi liburan dengan mempelajari Node.js. Ingin aku buatkan modul dasarnya?"
+                : (proactiveInsight || "Sedang menganalisis catatan dan tugasmu...")}
+            </p>
+            <Link
+              href="/app/ai"
+              className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-ai)] hover:underline"
+            >
+              <Lightning size={12} weight="fill" />
+              {contextMode === "EXAM_WEEK" ? "Mulai AI Flashcards" : "Buka AI Asisten"}
+            </Link>
+          </motion.div>
+
+          {/* Contextual Secondary Block */}
+          {contextMode === "NORMAL" && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.25 }}
+              className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-sm)]"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <CalendarDots size={18} weight="duotone" className="text-[var(--color-primary)]" />
+                  <h2 className="text-base font-semibold text-[var(--color-text)]">Hari Ini</h2>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {todaySchedule.map((item, i) => (
+                  <motion.div
+                    key={item.title}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0.3 + i * 0.06 }}
+                    className="flex items-start gap-3"
+                  >
+                    <span className="mt-0.5 text-xs font-mono text-[var(--color-text-muted)] w-10 shrink-0">
+                      {item.time}
+                    </span>
+                    <div className="flex-1 rounded-lg border-l-2 pl-3 py-1" style={{ borderColor: item.color }}>
+                      <p className="text-sm font-medium text-[var(--color-text)]">{item.title}</p>
+                      <p className="text-xs text-[var(--color-text-muted)] capitalize">{item.type}</p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {contextMode === "EXAM_WEEK" && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.25 }}
+              className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-sm)]"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Notebook size={18} weight="duotone" className="text-[var(--color-primary)]" />
+                  <h2 className="text-base font-semibold text-[var(--color-text)]">Materi Terkait</h2>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {recentNotes.map((note, i) => (
+                  <div key={i} className="p-3 border border-[var(--color-border)] rounded-xl hover:bg-[var(--color-surface-hover)] cursor-pointer transition-colors">
+                    <p className="text-sm font-medium">{note.title}</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">{note.subject}</p>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </div>
       </div>
     </div>
   );

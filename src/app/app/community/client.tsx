@@ -18,7 +18,7 @@ type Post = {
   } | null;
 };
 
-export default function CommunityClient({ initialPosts, currentUserId }: { initialPosts: Post[], currentUserId: string }) {
+export default function CommunityClient({ initialPosts, currentUserId, university, major }: { initialPosts: Post[], currentUserId: string, university?: string | null, major?: string | null }) {
   const [posts, setPosts] = useState(initialPosts);
   const [isCreating, setIsCreating] = useState(false);
   const [title, setTitle] = useState("");
@@ -70,7 +70,7 @@ export default function CommunityClient({ initialPosts, currentUserId }: { initi
           className="text-3xl font-bold text-[var(--color-text)] tracking-tight flex items-center gap-3"
         >
           <UsersThree weight="fill" className="text-[var(--color-primary)]" />
-          Komunitas Kampus
+          Komunitas {university ? `Kampus` : 'Global'}
         </motion.h1>
         <motion.p 
           initial={{ opacity: 0, y: -10 }}
@@ -78,7 +78,10 @@ export default function CommunityClient({ initialPosts, currentUserId }: { initi
           transition={{ delay: 0.1 }}
           className="text-[var(--color-text-muted)] mt-2"
         >
-          Diskusikan PR, berbagi info kampus, dan cari teman belajar.
+          {university 
+            ? `Diskusikan PR, berbagi info kampus, dan cari teman belajar dari ${university}${major ? ` (Jurusan ${major})` : ''}.`
+            : "Diskusikan PR, berbagi info kampus, dan cari teman belajar. Atur universitas di profil untuk masuk ke komunitas kampusmu!"
+          }
         </motion.p>
       </header>
 
