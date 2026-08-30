@@ -273,7 +273,7 @@ export async function summarizeContent(content: string) {
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
     const prompt = `Tolong buatkan ringkasan (summary) dalam bahasa Indonesia yang padat dan jelas dari teks atau catatan berikut:\n\n${content}`;
     const result = await model.generateContent(prompt);
     return result.response.text();
@@ -521,7 +521,7 @@ ${notes.map(n => `Judul: ${n.title}\nKonten Singkat: ${n.content?.substring(0, 2
     // 2. Generate with Function Calling
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
+      model: "gemini-flash-latest",
       tools: [{
         functionDeclarations: [
           {
@@ -622,7 +622,7 @@ export async function getProactiveInsight() {
     const contextText = tasks.map(t => `- ${t.title} (Due: ${t.dueDate ? t.dueDate.toLocaleDateString() : 'None'})`).join('\n');
     
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
     const prompt = `Berikan 1 kalimat singkat (maksimal 150 karakter) berupa insight proaktif atau peringatan halus untuk memotivasi user menyelesaikan tugas-tugas ini:\n${contextText}`;
     
     const result = await model.generateContent(prompt);
