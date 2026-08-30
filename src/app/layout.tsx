@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ZoomPrevent } from "@/components/providers/zoom-prevent";
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -15,14 +16,28 @@ export const metadata: Metadata = {
   description:
     "AI-powered personal learning & productivity platform untuk mahasiswa. Hubungkan pengetahuan, jadwal, tugas, dan tujuan dalam satu workspace.",
   keywords: ["NeLK", "NextLink", "learning", "productivity", "AI", "mahasiswa", "student"],
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "NeLK",
+  },
+  icons: {
+    apple: "/assets/images/secondry-logo.png",
+    icon: "/assets/images/secondry-logo.png",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
-export const viewport = {
+export const viewport: Viewport = {
   width: "device-width",
-  initialScale: 1.0,
-  maximumScale: 5.0,
-  userScalable: true,
-  viewportFit: "automatic",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#7c5cfc",
 };
 
 export default function RootLayout({
@@ -32,7 +47,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" suppressHydrationWarning>
-      <body className={`${plusJakarta.variable} font-sans antialiased`}>
+      <body className={`${plusJakarta.variable} font-sans antialiased touch-pan-x touch-pan-y`}>
+        <ZoomPrevent />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

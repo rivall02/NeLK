@@ -1,0 +1,27 @@
+{
+  "name": "NeLK",
+  "short_name": "NeLK",
+  "description": "AI-powered personal learning & productivity platform untuk mahasiswa.",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#0f0f11",
+  "theme_color": "#7c5cfc",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/assets/images/secondry-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/images/secondry-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "productivity"],
+  "lang": "id"
+}

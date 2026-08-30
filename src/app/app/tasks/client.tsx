@@ -23,7 +23,6 @@ import {
   updateTaskStatus,
   deleteTask as deleteTaskAction,
   syncGoogleClassroom,
-  toggleTaskVisibility,
 } from "@/lib/actions";
 import { CanonicalTaskPriority, CanonicalTaskStatus } from "@/lib/validations";
 

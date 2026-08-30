@@ -296,29 +296,8 @@ export async function deleteNote(id: string) {
 }
 
 // ----------------------------------------------------------------------
-// VISIBILITY ACTIONS (Feature #4: Public/Private Toggle)
-// ----------------------------------------------------------------------
+// toggleTaskVisibility removed - tasks are now always private
 
-export async function toggleTaskVisibility(id: string) {
-  const user = await requireAuth();
-
-  const task = await prisma.task.findUnique({
-    where: { id, userId: user.id },
-  });
-
-  if (!task) throw new Error("Tugas tidak ditemukan.");
-
-  const newVisibility = task.visibility === "public" ? "private" : "public";
-
-  await prisma.task.update({
-    where: { id, userId: user.id },
-    data: { visibility: newVisibility },
-  });
-
-  revalidatePath("/app/tasks");
-  revalidatePath("/app/community");
-  return { visibility: newVisibility };
-}
 
 export async function toggleNoteVisibility(id: string) {
   const user = await requireAuth();

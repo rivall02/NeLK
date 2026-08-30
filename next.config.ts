@@ -1,8 +1,25 @@
 import type { NextConfig } from "next";
+import withPWA from "@ducanh2912/next-pwa";
+
+const pwaConfig = withPWA({
+  dest: "public",
+  cacheOnFrontEndNav: true,
+  aggressiveFrontEndNavCaching: true,
+  reloadOnOnline: true,
+  disable: process.env.NODE_ENV === "development",
+  fallbacks: {
+    document: "/offline",
+  },
+});
 
 const nextConfig: NextConfig = {
   // Add viewport meta for mobile
   reactStrictMode: true,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
+  },
   // Security headers
   async headers() {
     return [
@@ -39,4 +56,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default pwaConfig(nextConfig);

@@ -235,10 +235,14 @@ async function callGroqChat(systemPrompt: string, userMessage: string, modelName
   // Check if userMessage is a data URL (image)
   let userContent: any = userMessage;
   if (userMessage.startsWith("data:image/")) {
-    userContent = [
-      { type: "text", text: "Tolong ekstrak informasi dari gambar jadwal ini." },
-      { type: "image_url", image_url: { url: userMessage } }
-    ];
+    if (modelName.includes("vision")) {
+      userContent = [
+        { type: "text", text: "Tolong ekstrak informasi dari gambar jadwal ini." },
+        { type: "image_url", image_url: { url: userMessage } }
+      ];
+    } else {
+      throw new Error("Model ini tidak mendukung pemrosesan gambar.");
+    }
   }
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {

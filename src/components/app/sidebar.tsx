@@ -20,6 +20,7 @@ import {
   UsersThree,
   Sneaker,
   Trophy,
+  GraduationCap,
 } from "@phosphor-icons/react";
 import { NotificationBell } from "@/components/app/notification-bell";
 
@@ -28,7 +29,7 @@ const allNavItems = [
   { label: "Catatan", href: "/app/notes", icon: Notebook },
   { label: "Tugas", href: "/app/tasks", icon: CheckSquare },
   { label: "Jadwal", href: "/app/schedule", icon: CalendarDots },
-  { label: "Belajar", href: "/app/files", icon: Folder },
+  { label: "Belajar", href: "/app/files", icon: GraduationCap },
   { label: "Komunitas", href: "/app/community", icon: UsersThree },
   { label: "Kesehatan", href: "/app/fitness", icon: Sneaker },
   { label: "AI", href: "/app/ai", icon: Brain },
@@ -50,11 +51,11 @@ export function Sidebar() {
       <header className="fixed top-0 left-0 right-0 z-30 flex h-[var(--topbar-height)] items-center justify-between bg-[var(--color-surface)]/90 px-4 backdrop-blur-md md:hidden border-b border-[var(--color-border)] shadow-[var(--shadow-sm)]">
         <Link href="/app" className="flex items-center gap-2.5">
           <img
-            src="/assets/images/secondry-logo.png"
-            alt="NeLK Logo"
+            src="/assets/images/primary-logo.png"
+            alt="Next Link Logo"
             className="h-8 w-auto drop-shadow-sm transition-transform hover:scale-105"
           />
-          <span className="text-base font-bold tracking-tight text-[var(--color-text)]">NeLK</span>
+          <span className="text-base font-bold tracking-tight text-[var(--color-text)]">Next Link</span>
         </Link>
         <div className="flex items-center gap-2">
           <NotificationBell isMobileInline={true} />
@@ -67,7 +68,7 @@ export function Sidebar() {
           {/* Background panel (Floating Box) */}
           <div className="absolute bottom-0 left-0 right-0 h-[68px] bg-[var(--color-surface)] rounded-[28px] shadow-[0_8px_30px_rgba(0,0,0,0.12)] border border-[var(--color-border)] flex items-center justify-around px-2" />
 
-          <div className="relative flex h-[96px] items-end justify-around pb-[14px]">
+          <div className="relative flex h-[96px] items-end justify-around pb-[0px]">
             {allNavItems.slice(0, 4).map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
@@ -91,10 +92,10 @@ export function Sidebar() {
                     className={`text-[10px] font-semibold tracking-wide transition-all duration-300 ${
                       isActive
                         ? "text-[var(--color-primary)] opacity-100"
-                        : "text-[var(--color-text-muted)] opacity-0 -translate-y-2"
+                        : "text-[var(--color-text-muted)] opacity-0 -translate-y-2 pointer-events-none"
                     }`}
                   >
-                    {isActive ? item.label : ""}
+                    {item.label}
                   </span>
                 </Link>
               );
@@ -118,7 +119,7 @@ export function Sidebar() {
                 className={`text-[10px] font-semibold tracking-wide transition-all duration-300 ${
                   mobileMenuOpen
                     ? "text-[var(--color-primary)] opacity-100"
-                    : "text-[var(--color-text-muted)] opacity-0 -translate-y-2"
+                    : "text-[var(--color-text-muted)] opacity-0 -translate-y-2 pointer-events-none"
                 }`}
               >
                 Menu
@@ -200,8 +201,8 @@ export function Sidebar() {
         <div className="flex h-[var(--topbar-height)] items-center justify-between px-4">
           <Link href="/app" className="flex items-center gap-2.5 overflow-hidden">
             <img
-              src="/assets/images/secondry-logo.png"
-              alt="NeLK Logo"
+              src="/assets/images/primary-logo.png"
+              alt="Next Link Logo"
               className="h-8 w-auto shrink-0 drop-shadow-sm transition-transform hover:scale-105"
             />
             <AnimatePresence initial={false}>
@@ -212,7 +213,7 @@ export function Sidebar() {
                   exit={{ opacity: 0, width: 0 }}
                   className="text-lg font-bold tracking-tight text-[var(--color-text)] whitespace-nowrap overflow-hidden"
                 >
-                  NeLK
+                  Next Link
                 </motion.span>
               )}
             </AnimatePresence>

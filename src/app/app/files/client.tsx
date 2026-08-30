@@ -38,7 +38,7 @@ type FileDoc = {
   type: string;
   content: string;
   date: string;
-  downloadUrl: string;
+  downloadUrl?: string;
 };
 
 type Course = {

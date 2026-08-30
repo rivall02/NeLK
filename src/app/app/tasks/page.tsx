@@ -29,7 +29,6 @@ export default async function TasksPage() {
     priority: normalizeTaskPriority(t.priority),
     status: normalizeTaskStatus(t.status),
     subject: t.subject || undefined,
-    visibility: t.visibility as "public" | "private",
   }));
 
   return <TasksClient initialTasks={mappedTasks} />;
