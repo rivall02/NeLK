@@ -8,8 +8,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// NextAuth Models
-
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -38,31 +36,31 @@ model Session {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
+  id               String          @id @default(cuid())
+  name             String?
+  email            String?         @unique
+  emailVerified    DateTime?
+  image            String?
   password         String?
-  xp               Int       @default(0)
-  level            Int       @default(1)
-  role             String    @default("USER")
-  subscriptionPlan String    @default("FREE")
-  contextMode      String    @default("NORMAL") // "NORMAL", "EXAM_WEEK", "VACATION"
+  xp               Int             @default(0)
+  level            Int             @default(1)
+  role             String          @default("USER")
+  subscriptionPlan String          @default("FREE")
+  contextMode      String          @default("NORMAL")
   university       String?
   major            String?
-  accounts      Account[]
-  sessions      Session[]
-  tasks         Task[]
-  notes         Note[]
-  events        Event[]
-  collections   Collection[]
-  documents     Document[]
-  courses       Course[]
-  flashcards    Flashcard[]
-  posts         CommunityPost[]
-  activities    Activity[]
-  notifications Notification[]
+  accounts         Account[]
+  sessions         Session[]
+  tasks            Task[]
+  notes            Note[]
+  events           Event[]
+  collections      Collection[]
+  documents        Document[]
+  courses          Course[]
+  flashcards       Flashcard[]
+  posts            CommunityPost[]
+  activities       Activity[]
+  notifications    Notification[]
 }
 
 model VerificationToken {
@@ -76,29 +74,29 @@ model VerificationToken {
 // NeLK Models
 
 model Task {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   description String?
-  status      String   @default("TODO") // "TODO", "IN_PROGRESS", "DONE"
-  priority    String   @default("MEDIUM") // "LOW", "MEDIUM", "HIGH"
+  status      String    @default("TODO")
+  priority    String    @default("MEDIUM")
   subject     String?
   dueDate     DateTime?
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Note {
-  id           String   @id @default(cuid())
+  id           String      @id @default(cuid())
   title        String
   content      String?
   userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   collectionId String?
-  collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  collection   Collection?  @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 }
 
 model Event {
@@ -114,20 +112,19 @@ model Event {
   updatedAt   DateTime @updatedAt
 }
 
-// V1 Knowledge Models
 model Collection {
-  id          String   @id @default(cuid())
-  name        String
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  notes       Note[]
-  documents   Document[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String     @id @default(cuid())
+  name      String
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notes     Note[]
+  documents Document[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model Document {
-  id           String   @id @default(cuid())
+  id           String      @id @default(cuid())
   title        String
   content      String?
   fileUrl      String?
@@ -137,21 +134,20 @@ model Document {
   collectionId String?
   collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 }
 
-// V2 Learning Models
 model Course {
-  id          String   @id @default(cuid())
+  id          String      @id @default(cuid())
   title       String
   description String?
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   flashcards  Flashcard[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 }
 
 model Notification {
@@ -159,41 +155,39 @@ model Notification {
   userId    String
   message   String
   read      Boolean  @default(false)
-  type      String   @default("system") // e.g. 'reminder', 'system', 'gamification'
+  type      String   @default("system")
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Flashcard {
-  id          String   @id @default(cuid())
-  front       String
-  back        String
-  courseId    String
-  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  front    String
+  back     String
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// V5 Community Models
 model CommunityPost {
-  id          String   @id @default(cuid())
-  title       String
-  content     String
-  category    String   @default("Diskusi Umum")
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  category  String   @default("Diskusi Umum")
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 }
 
-// V6 Fitness Models
 model Activity {
-  id          String   @id @default(cuid())
-  title       String
-  type        String
-  duration    Int?     // minutes
-  calories    Int?     // kcal
-  date        DateTime @default(now())
-  createdAt   DateTime @default(now())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  title     String
+  type      String
+  duration  Int?
+  calories  Int?
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

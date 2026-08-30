@@ -38,10 +38,10 @@ export function LandingHero() {
             transition={{ duration: 0.6, delay: 0.3 }}
             className="mt-6 text-4xl font-extrabold leading-[1.1] tracking-tight text-[var(--color-text)] md:text-5xl lg:text-6xl"
           >
-            Satu workspace untuk{" "}
+            Satu workspace untuk
             <span className="bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-ai)] bg-clip-text text-transparent">
               seluruh perjalanan
-            </span>{" "}
+            </span>
             belajarmu
           </motion.h1>
 
@@ -81,13 +81,13 @@ export function LandingHero() {
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
-          className="relative hidden lg:block"
-        >
-          <div className="grid grid-cols-2 gap-4">
+          className="relative w-full"
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {/* Card: Notes */}
             <motion.div
               whileHover={{ y: -4, transition: { duration: 0.2 } }}
-              className="col-span-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-md)]"
+              className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-md)]"
             >
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--color-primary-light)]">
@@ -99,7 +99,7 @@ export function LandingHero() {
                 </div>
               </div>
               <div className="mt-4 space-y-2">
-                {["Normalisasi Database — Bentuk 1NF, 2NF, 3NF", "Algoritma Sorting — Quick Sort vs Merge Sort", "Kalkulus II — Integral Lipat Dua"].map((note, i) => (
+                {[ "Normalisasi Database — Bentuk 1NF, 2NF, 3NF", "Algoritma Sorting — Quick Sort vs Merge Sort", "Kalkulus II — Integral Lipat Dua" ].map((note, i) => (
                   <div key={i} className="rounded-xl bg-[var(--color-bg)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">
                     {note}
                   </div>
@@ -146,7 +146,7 @@ export function LandingHero() {
                 <p className="text-sm font-semibold text-[var(--color-text)]">AI Asisten</p>
               </div>
               <div className="rounded-xl bg-[var(--color-surface)] px-3 py-2.5 text-xs leading-relaxed text-[var(--color-text-secondary)]">
-                &quot;Topik <strong>Normalisasi</strong> perlu diulas kembali. Kuis terakhir menunjukkan kelemahan di 2NF.&quot;
+                "Topik <strong>Normalisasi</strong> perlu diulas kembali. Kuis terakhir menunjukkan kelemahan di 2NF."
               </div>
             </motion.div>
           </div>

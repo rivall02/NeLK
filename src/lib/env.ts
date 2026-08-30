@@ -1,12 +1,14 @@
-/**
- * Environment configuration and runtime validation.
+/** 
+ * Environment configuration and runtime validation. 
  * Safe defaults and clear status checks for external integrations.
  */
 
 export const env = {
+  // Environment URL
+  NEXTAUTH_URL: process.env.NEXTAUTH_URL || "http://localhost:3000",
+
   // Database
   DATABASE_URL: process.env.DATABASE_URL || "",
-  DIRECT_URL: process.env.DIRECT_URL || "",
 
   // Auth
   AUTH_SECRET: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "development-secret-key-replace-in-production",
@@ -32,18 +34,30 @@ export const env = {
   MAX_FILE_SIZE_BYTES: parseInt(process.env.MAX_FILE_SIZE_BYTES || "10485760", 10), // 10MB default
 };
 
+/** 
+ * Check if Gemini AI is configured 
+ */
 export const hasGeminiConfigured = (): boolean => {
   return Boolean(env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim().length > 5);
 };
 
+/** 
+ * Check if Google OAuth is configured 
+ */
 export const hasGoogleAuthConfigured = (): boolean => {
   return Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
 };
 
+/** 
+ * Check if Strava is configured 
+ */
 export const hasStravaConfigured = (): boolean => {
   return Boolean(env.STRAVA_CLIENT_ID && env.STRAVA_CLIENT_SECRET);
 };
 
+/** 
+ * Check if Billing is configured 
+ */
 export const hasBillingConfigured = (): boolean => {
   return Boolean(env.STRIPE_SECRET_KEY);
 };

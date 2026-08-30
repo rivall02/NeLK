@@ -17,6 +17,14 @@ export const metadata: Metadata = {
   keywords: ["NeLK", "NextLink", "learning", "productivity", "AI", "mahasiswa", "student"],
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1.0,
+  maximumScale: 5.0,
+  userScalable: true,
+  viewportFit: "automatic",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
