@@ -32,7 +32,14 @@ export async function GET(
       return NextResponse.json({ error: "Storage key missing for document" }, { status: 404 });
     }
 
-    const fileBuffer = await storageService.readFile(storageKey);
+    let fileBuffer: Buffer;
+    if (storageKey.startsWith("gdrive:")) {
+      const { downloadFromUserDrive } = await import("@/lib/gdrive-storage");
+      fileBuffer = await downloadFromUserDrive(session.user.id, storageKey.replace("gdrive:", ""));
+    } else {
+      fileBuffer = await storageService.readFile(storageKey);
+    }
+
     const mimeType = doc.mimeType || "application/pdf";
     const filename = doc.title || "document";
 

@@ -595,8 +595,24 @@ export async function uploadDocument(formData: FormData) {
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
 
-  // 1. Secure storage outside public/
-  const stored = await storageService.saveFile(buffer, file.name, file.type);
+  // 1. Secure storage (Try Google Drive first, fallback to local)
+  let storageKey = "";
+  let sizeBytes = 0;
+  let storedMimeType = file.type;
+
+  try {
+    const { uploadToUserDrive } = await import("./gdrive-storage");
+    const gdriveResult = await uploadToUserDrive(user.id, buffer, file.name, file.type);
+    storageKey = gdriveResult.storageKey;
+    sizeBytes = gdriveResult.sizeBytes;
+    storedMimeType = gdriveResult.mimeType;
+  } catch (e: any) {
+    logger.info("Falling back to local storage", { reason: e.message });
+    const stored = await storageService.saveFile(buffer, file.name, file.type);
+    storageKey = stored.storageKey;
+    sizeBytes = stored.sizeBytes;
+    storedMimeType = stored.mimeType;
+  }
 
   // 2. Extract text content if applicable
   let content = "";
@@ -615,11 +631,11 @@ export async function uploadDocument(formData: FormData) {
 
   const doc = await prisma.document.create({
     data: {
-      title: stored.originalName,
+      title: file.name,
       fileUrl: `/api/documents/download`, // placeholder, actual download route is dynamic
-      storageKey: stored.storageKey,
-      fileSize: stored.sizeBytes,
-      mimeType: stored.mimeType,
+      storageKey: storageKey,
+      fileSize: sizeBytes,
+      mimeType: storedMimeType,
       content,
       userId: user.id,
     },
@@ -639,7 +655,12 @@ export async function deleteDocument(id: string) {
   if (!doc) throw new Error("Dokumen tidak ditemukan.");
 
   if (doc.storageKey) {
-    await storageService.deleteFile(doc.storageKey);
+    if (doc.storageKey.startsWith("gdrive:")) {
+      const { deleteFromUserDrive } = await import("./gdrive-storage");
+      await deleteFromUserDrive(user.id, doc.storageKey.replace("gdrive:", ""));
+    } else {
+      await storageService.deleteFile(doc.storageKey);
+    }
   } else if (doc.fileUrl && doc.fileUrl.startsWith("/uploads/")) {
     // Legacy cleanup
     await storageService.deleteFile(doc.fileUrl.replace("/uploads/", ""));
