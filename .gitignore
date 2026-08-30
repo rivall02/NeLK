@@ -43,3 +43,7 @@ NeLK Point
 *.tsbuildinfo
 next-env.d.ts
 NeLK Point/
+
+# Prisma SQLite
+*.db
+*.db-journal

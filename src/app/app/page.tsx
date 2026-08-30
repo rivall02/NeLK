@@ -15,36 +15,36 @@ import {
 } from "@phosphor-icons/react";
 import Link from "next/link";
 
-
-const upcomingTasks = [
-  { title: "Tugas Basis Data — ERD Perpustakaan", due: "Besok, 23:59", priority: "high" },
-  { title: "Baca Bab 5 — Kalkulus II", due: "Rabu, 10:00", priority: "medium" },
-  { title: "Quiz Pemrograman Web", due: "Kamis, 08:00", priority: "high" },
-];
-
-const todaySchedule = [
-  { time: "08:00", title: "Basis Data", type: "class", color: "var(--color-primary)" },
-  { time: "10:00", title: "Kalkulus II", type: "class", color: "var(--color-accent-pink)" },
-  { time: "13:00", title: "Sesi Belajar — Sorting", type: "study", color: "var(--color-accent-lime)" },
-  { time: "15:00", title: "Pemrograman Web", type: "class", color: "var(--color-accent-yellow)" },
-];
-
-const recentNotes = [
-  { title: "Normalisasi Database", subject: "Basis Data", updatedAt: "2 jam lalu" },
-  { title: "Quick Sort vs Merge Sort", subject: "Algoritma", updatedAt: "5 jam lalu" },
-];
-
 export default function DashboardPage() {
   const greeting = getGreeting();
   const [noteSummary, setNoteSummary] = React.useState<{title: string, summary: string} | null>(null);
   const [userProfile, setUserProfile] = React.useState<{xp: number, level: number, contextMode: string} | null>(null);
+  const [tasks, setTasks] = React.useState<any[]>([]);
+  const [schedule, setSchedule] = React.useState<any[]>([]);
+  const [notes, setNotes] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    import("@/lib/actions").then(actions => {
-      actions.getRandomNoteSummary().then(res => setNoteSummary(res as any));
-      actions.getUserProfile().then(profile => {
+    import("@/lib/actions").then(async (actions) => {
+      try {
+        const [summary, profile, upcoming, today, recent] = await Promise.all([
+          actions.getRandomNoteSummary(),
+          actions.getUserProfile(),
+          actions.getUpcomingTasks(),
+          actions.getTodaySchedule(),
+          actions.getRecentNotes()
+        ]);
+        
+        setNoteSummary(summary as any);
         if (profile) setUserProfile(profile as any);
-      });
+        setTasks(upcoming);
+        setSchedule(today);
+        setNotes(recent);
+      } catch (err) {
+        console.error("Failed to load dashboard data", err);
+      } finally {
+        setLoading(false);
+      }
     });
   }, []);
 
@@ -60,6 +60,17 @@ export default function DashboardPage() {
     await actions.updateContextMode(mode);
   };
 
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--color-primary)] border-t-transparent"></div>
+          <p className="text-sm font-medium text-[var(--color-text-muted)]">Memuat data Dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       {/* Header & Gamification */}
@@ -71,7 +82,7 @@ export default function DashboardPage() {
       >
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text)] md:text-3xl flex items-center gap-2">
-            {greeting}, Rhys
+            {greeting}, {userProfile ? "Rhys" : "Guest"}
             <span className="text-sm font-medium px-2 py-1 bg-[var(--color-primary-light)] text-[var(--color-primary)] rounded-md">
               {contextMode === "NORMAL" ? "Normal Semester" : contextMode === "EXAM_WEEK" ? "Exam Week" : "Vacation"} Mode
             </span>
@@ -81,7 +92,7 @@ export default function DashboardPage() {
               ? "Minggu ujian! Fokus ke materi penting dan tugas mendesak." 
               : contextMode === "VACATION"
               ? "Waktunya bersantai dan kembangkan hobi di luar akademik."
-              : "Kamu punya 3 tugas mendesak dan 4 jadwal hari ini."}
+              : `Kamu punya ${tasks.length} tugas mendesak dan ${schedule.length} jadwal hari ini.`}
           </p>
         </div>
 
@@ -129,23 +140,24 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="space-y-3">
-              {[
-                { title: "Review Bab Kalkulus (Final Exam)", due: "Besok, 08:00", priority: "high" },
-                { title: "Simulasi Kuis Basis Data", due: "Hari ini, 19:00", priority: "high" }
-              ].map((task, i) => (
-                <div key={i} className="group flex items-center gap-4 rounded-xl px-4 py-3 bg-[var(--color-bg)] border-l-4 border-[var(--color-error)]">
+              {tasks.length > 0 ? tasks.map((task, i) => (
+                <div key={task.id} className="group flex items-center gap-4 rounded-xl px-4 py-3 bg-[var(--color-bg)] border-l-4 border-[var(--color-error)]">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-[var(--color-error)] truncate">{task.title}</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <Clock size={12} className="text-[var(--color-text-muted)]" />
-                      <span className="text-xs font-semibold text-[var(--color-text)]">{task.due}</span>
+                      <span className="text-xs font-semibold text-[var(--color-text)]">
+                        {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No date'}
+                      </span>
                     </div>
                   </div>
                   <button className="text-xs font-medium bg-[var(--color-error)] text-white px-3 py-1.5 rounded-lg hover:bg-red-600 transition-colors">
                     Mulai Belajar
                   </button>
                 </div>
-              ))}
+              )) : (
+                <p className="text-sm text-[var(--color-text-muted)]">Tidak ada tugas mendesak.</p>
+              )}
             </div>
           </motion.div>
         ) : contextMode === "VACATION" ? (
@@ -196,9 +208,9 @@ export default function DashboardPage() {
               </Link>
             </div>
             <div className="space-y-3">
-              {upcomingTasks.map((task, i) => (
+              {tasks.length > 0 ? tasks.map((task, i) => (
                 <motion.div
-                  key={task.title}
+                  key={task.id}
                   initial={{ opacity: 0, x: -12 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.3, delay: 0.3 + i * 0.06 }}
@@ -209,16 +221,20 @@ export default function DashboardPage() {
                     <p className="text-sm font-medium text-[var(--color-text)] truncate">{task.title}</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <Clock size={12} className="text-[var(--color-text-muted)]" />
-                      <span className="text-xs text-[var(--color-text-muted)]">{task.due}</span>
+                      <span className="text-xs text-[var(--color-text-muted)]">
+                        {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No date'}
+                      </span>
                     </div>
                   </div>
                   <div
                     className={`h-2 w-2 shrink-0 rounded-full ${
-                      task.priority === "high" ? "bg-[var(--color-error)]" : "bg-[var(--color-accent-yellow)]"
+                      i === 0 ? "bg-[var(--color-error)]" : "bg-[var(--color-accent-yellow)]"
                     }`}
                   />
                 </motion.div>
-              ))}
+              )) : (
+                <p className="text-sm text-[var(--color-text-muted)] p-4 text-center border border-dashed border-[var(--color-border)] rounded-xl">Kamu tidak memiliki tugas saat ini. Yay!</p>
+              )}
             </div>
           </motion.div>
         )}
@@ -284,23 +300,29 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="space-y-3">
-                {todaySchedule.map((item, i) => (
-                  <motion.div
-                    key={item.title}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3, delay: 0.3 + i * 0.06 }}
-                    className="flex items-start gap-3"
-                  >
-                    <span className="mt-0.5 text-xs font-mono text-[var(--color-text-muted)] w-10 shrink-0">
-                      {item.time}
-                    </span>
-                    <div className="flex-1 rounded-lg border-l-2 pl-3 py-1" style={{ borderColor: item.color }}>
-                      <p className="text-sm font-medium text-[var(--color-text)]">{item.title}</p>
-                      <p className="text-xs text-[var(--color-text-muted)] capitalize">{item.type}</p>
-                    </div>
-                  </motion.div>
-                ))}
+                {schedule.length > 0 ? schedule.map((item, i) => {
+                  const colors = ["var(--color-primary)", "var(--color-accent-pink)", "var(--color-accent-lime)", "var(--color-accent-yellow)"];
+                  const color = colors[i % colors.length];
+                  return (
+                    <motion.div
+                      key={item.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: 0.3 + i * 0.06 }}
+                      className="flex items-start gap-3"
+                    >
+                      <span className="mt-0.5 text-xs font-mono text-[var(--color-text-muted)] w-10 shrink-0">
+                        {item.startTime || "--:--"}
+                      </span>
+                      <div className="flex-1 rounded-lg border-l-2 pl-3 py-1" style={{ borderColor: color }}>
+                        <p className="text-sm font-medium text-[var(--color-text)]">{item.title}</p>
+                        <p className="text-xs text-[var(--color-text-muted)] capitalize">Event</p>
+                      </div>
+                    </motion.div>
+                  )
+                }) : (
+                  <p className="text-xs text-[var(--color-text-muted)]">Tidak ada jadwal hari ini.</p>
+                )}
               </div>
             </motion.div>
           )}
@@ -315,16 +337,20 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Notebook size={18} weight="duotone" className="text-[var(--color-primary)]" />
-                  <h2 className="text-base font-semibold text-[var(--color-text)]">Materi Terkait</h2>
+                  <h2 className="text-base font-semibold text-[var(--color-text)]">Catatan Terbaru</h2>
                 </div>
               </div>
               <div className="space-y-3">
-                {recentNotes.map((note, i) => (
-                  <div key={i} className="p-3 border border-[var(--color-border)] rounded-xl hover:bg-[var(--color-surface-hover)] cursor-pointer transition-colors">
+                {notes.length > 0 ? notes.map((note, i) => (
+                  <div key={note.id} className="p-3 border border-[var(--color-border)] rounded-xl hover:bg-[var(--color-surface-hover)] cursor-pointer transition-colors">
                     <p className="text-sm font-medium">{note.title}</p>
-                    <p className="text-xs text-[var(--color-text-muted)] mt-1">{note.subject}</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                      {new Date(note.updatedAt).toLocaleDateString()}
+                    </p>
                   </div>
-                ))}
+                )) : (
+                  <p className="text-xs text-[var(--color-text-muted)]">Belum ada catatan.</p>
+                )}
               </div>
             </motion.div>
           )}

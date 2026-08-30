@@ -797,6 +797,49 @@ export async function updateContextMode(mode: string) {
 export async function updateUserProfile(data: { university?: string, major?: string }) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data
+  });
+  revalidatePath("/app");
+}
+
+export async function getUpcomingTasks() {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+  return await prisma.task.findMany({
+    where: { userId: session.user.id, status: { not: "done" } },
+    orderBy: { dueDate: 'asc' },
+    take: 3
+  });
+}
+
+export async function getTodaySchedule() {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  return await prisma.event.findMany({
+    where: { 
+      userId: session.user.id,
+      date: { gte: today, lt: tomorrow }
+    },
+    orderBy: { startTime: 'asc' }
+  });
+}
+
+export async function getRecentNotes() {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+  return await prisma.note.findMany({
+    where: { userId: session.user.id },
+    orderBy: { updatedAt: 'desc' },
+    take: 2
+  });
+}
 
   await prisma.user.update({
     where: { id: session.user.id },
