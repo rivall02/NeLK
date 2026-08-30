@@ -111,7 +111,7 @@ export default function SettingsClient({
   };
 
   return (
-    <div className="flex-1 max-w-3xl w-full mx-auto p-4 md:p-8 pt-20 md:pt-8 min-h-screen">
+    <div className="flex-1 max-w-3xl w-full mx-auto p-4 md:p-6 min-h-screen">
       <header className="mb-8">
         <motion.h1
           initial={{ opacity: 0, y: -10 }}

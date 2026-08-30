@@ -46,26 +46,28 @@ export function LandingHero() {
               NeLK menghubungkan catatan, tugas, jadwal, dan mata kuliah ke
               dalam satu sistem cerdas yang memahami konteks akademikmu.
             </motion.p>
-            {/* Semester and Level selector for mobile */}
+            {/* Semester and Level selector for mobile & desktop */}
             <motion.div
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.5 }}
             >
-              <div className="mt-8 flex items-center justify-between gap-4">
-                <select
-                  value="NORMAL"
-                  onChange={(e) => {}}
-                  className="flex-1 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] px-4 py-2 text-sm font-medium text-[var(--color-text)] cursor-default shadow-[var(--shadow-sm)]"
-                  disabled
-                >
-                  <option value="NORMAL">Semester Reguler</option>
-                  <option value="EXAM_WEEK">Minggu Ujian</option>
-                  <option value="VACATION">Liburan</option>
-                </select>
-                <div className="flex items-center gap-2 shrink-0">
+              <div className="mt-8 flex flex-row items-center justify-between gap-4 w-full">
+                <div className="flex-1 max-w-[240px]">
+                  <select
+                    value="NORMAL"
+                    onChange={() => {}}
+                    className="w-full rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] px-3.5 py-2 text-xs font-semibold text-[var(--color-text)] cursor-default shadow-[var(--shadow-sm)] outline-none"
+                    disabled
+                  >
+                    <option value="NORMAL">Semester Reguler</option>
+                    <option value="EXAM_WEEK">Minggu Ujian</option>
+                    <option value="VACATION">Liburan</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 bg-[var(--color-surface)] border border-[var(--color-border)] px-3.5 py-1.5 rounded-xl shadow-[var(--shadow-sm)]">
                   <span className="text-xs font-medium text-[var(--color-text-muted)]">Level</span>
-                  <span className="text-xl font-bold text-[var(--color-primary)]">3</span>
+                  <span className="text-sm font-bold text-[var(--color-primary)]">3</span>
                 </div>
               </div>
             </motion.div>

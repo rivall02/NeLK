@@ -52,6 +52,7 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
   );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [visibilityFilter, setVisibilityFilter] = useState<"all" | "public" | "private">("all");
 
   // Save timeout ref for debouncing
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -61,12 +62,15 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
     latestContentRef.current = { title: editorTitle, content: editorContent };
   }, [editorTitle, editorContent]);
 
-  const filtered = notes.filter(
-    (n) =>
+  const filtered = notes.filter((n) => {
+    const matchesSearch =
       n.title.toLowerCase().includes(search.toLowerCase()) ||
       n.subject.toLowerCase().includes(search.toLowerCase()) ||
-      n.content.toLowerCase().includes(search.toLowerCase())
-  );
+      n.content.toLowerCase().includes(search.toLowerCase());
+    if (!matchesSearch) return false;
+    if (visibilityFilter === "all") return true;
+    return (n.visibility || "private") === visibilityFilter;
+  });
 
   const performSave = useCallback(
     async (id: string, titleToSave: string, contentToSave: string) => {
@@ -258,8 +262,8 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
           </motion.button>
         </div>
 
-        {/* Search */}
-        <div className="p-3">
+        {/* Search & Visibility Filters */}
+        <div className="p-3 space-y-2">
           <div className="flex items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2">
             <MagnifyingGlass size={16} className="text-[var(--color-text-muted)]" />
             <input
@@ -267,8 +271,28 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Cari catatan..."
-              className="flex-1 bg-transparent text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none"
+              className="flex-1 bg-transparent text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none"
             />
+          </div>
+
+          <div className="flex items-center gap-1.5 pt-0.5">
+            {[
+              { id: "all", label: "Semua" },
+              { id: "private", label: "Privat" },
+              { id: "public", label: "Publik" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setVisibilityFilter(tab.id as any)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                  visibilityFilter === tab.id
+                    ? "bg-[var(--color-primary)] text-white shadow-xs"
+                    : "bg-[var(--color-bg)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 

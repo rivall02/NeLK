@@ -203,10 +203,13 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
       setSyncStatus({ connected: result.connected, count: result.count });
       if (result.success) {
         toast.success(result.message || `Berhasil menyinkronkan ${result.count} tugas dari Google Classroom.`);
-        // Refresh page to show new tasks
         window.location.reload();
+      } else if (!result.connected) {
+        toast.info("Menghubungkan akun Google Classroom...");
+        const { signIn } = await import("next-auth/react");
+        await signIn("google", { callbackUrl: "/app/tasks" });
       } else {
-        toast.info(result.message || "Google Classroom belum terhubung. Hubungkan akun Google Anda di Pengaturan.");
+        toast.info(result.message || "Tidak ada tugas baru dari Google Classroom.");
       }
     } catch (e: any) {
       toast.error(e.message || "Gagal menyinkronkan tugas.");

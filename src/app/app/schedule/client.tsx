@@ -299,21 +299,30 @@ export default function ScheduleClient({
           </motion.p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] rounded-xl text-xs sm:text-sm font-semibold transition-colors active:scale-95 shadow-[var(--shadow-sm)]"
+          >
+            <FilePdf weight="duotone" className="text-red-500 text-base" />
+            <span>Import PDF / Foto</span>
+          </motion.button>
+
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={handleAutoSchedule}
             disabled={isAutoScheduling}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20 rounded-xl text-sm font-semibold transition-colors active:scale-95 shadow-sm disabled:opacity-50"
+            className="flex items-center gap-2 px-3.5 py-2.5 bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20 rounded-xl text-xs sm:text-sm font-semibold transition-colors active:scale-95 shadow-[var(--shadow-sm)] disabled:opacity-50"
           >
             <Sparkle weight="fill" className={isAutoScheduling ? "animate-spin" : ""} />
-            <span>{isAutoScheduling ? "Menganalisis..." : "Auto Schedule AI"}</span>
+            <span>{isAutoScheduling ? "Menganalisis..." : "Auto Schedule"}</span>
           </motion.button>
 
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={openAddModal}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] rounded-xl text-sm font-semibold transition-colors active:scale-95 shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] rounded-xl text-xs sm:text-sm font-semibold transition-colors active:scale-95 shadow-[var(--shadow-sm)]"
           >
             <Plus weight="bold" />
             <span>Tambah Jadwal</span>

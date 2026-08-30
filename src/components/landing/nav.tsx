@@ -24,10 +24,12 @@ export function LandingNav() {
       <div className="mx-auto max-w-7xl px-6 pt-4">
         <nav className="flex items-center justify-between rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/80 px-6 py-3 shadow-[var(--shadow-md)] backdrop-blur-xl">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-primary)] text-white font-bold text-sm">
-              N
-            </div>
+          <Link href="/" className="flex items-center gap-2.5">
+            <img
+              src="/assets/images/secondry-logo.png"
+              alt="NeLK Logo"
+              className="h-8 w-auto drop-shadow-sm transition-transform hover:scale-105"
+            />
             <span className="text-lg font-bold tracking-tight text-[var(--color-text)]">
               NeLK
             </span>

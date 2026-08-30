@@ -828,17 +828,21 @@ Pertanyaan: ${cleanQuery}`;
   } catch (e) {
     logger.error("AI Chat error", e);
     if (e instanceof Error) {
-      if (e.message.includes("429") || e.message.includes(" quota")) {
-        return "Kamu telah mencapai batas penggunaan AI harian. Coba lagi besok.";
+      if (e.message.includes("429") || e.message.includes("quota") || e.message.includes("RESOURCE_EXHAUSTED")) {
+        return "Kamu telah mencapai batas kuota penggunaan AI (Gemini Quota Exceeded). Coba lagi dalam beberapa saat atau besok.";
       }
-      if (e.message.includes("timeout")) {
-        return "Timeout koneksi AI. Coba lagi dalam 30 detik.";
+      if (e.message.includes("timeout") || e.message.includes("ETIMEDOUT") || e.message.includes("fetch failed")) {
+        return "Timeout koneksi ke server AI. Periksa koneksi internet Anda dan coba lagi dalam 30 detik.";
       }
-      if (e.message.includes("rate limit")) {
-        return "Anda telah mencapai batas pemakaian AI harian. Coba lagi besok.";
+      if (e.message.includes("API_KEY_INVALID") || e.message.includes("API key not valid")) {
+        return "Kunci API Gemini tidak valid atau belum diaktifkan di Google Cloud. Periksa konfigurasi GEMINI_API_KEY.";
       }
+      if (e.message.includes("rate limit") || e.message.includes("Terlalu banyak")) {
+        return "Anda telah mencapai batas frekuensi pemakaian AI NeLK. Silakan tunggu 1 menit sebelum mengirim pesan berikutnya.";
+      }
+      return `Layanan AI mengalami kendala: ${e.message.slice(0, 150)}. Silakan coba lagi.`;
     }
-    return "Terjadi kesalahan teknis. Coba lagi beberapa saat lagi.";
+    return "Terjadi kendala koneksi ke server AI. Silakan coba lagi dalam beberapa saat.";
   }
 }
 
