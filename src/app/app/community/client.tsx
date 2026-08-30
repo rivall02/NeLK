@@ -37,7 +37,7 @@ export default function CommunityClient({
   const [category, setCategory] = useState("Diskusi Umum");
   const [filter, setFilter] = useState("Semua");
 
-  const categories = ["Diskusi Umum", "Tanya PR", "Cari Teman Belajar", "Info Kampus"];
+  const categories = ["Diskusi Umum", "Tanya PR", "Cari Teman Belajar", "Info Kampus", "Berbagi Catatan"];
 
   const filteredPosts = filter === "Semua" ? posts : posts.filter((p) => p.category === filter);
 
@@ -227,8 +227,12 @@ export default function CommunityClient({
             </div>
 
             <div className="mt-3">
-              <span className="inline-block px-2.5 py-0.5 bg-[var(--color-bg)] border border-[var(--color-border)] text-[10px] font-semibold rounded-md text-[var(--color-primary)] mb-1.5">
-                {post.category}
+              <span className={`inline-block px-2.5 py-0.5 border text-[10px] font-semibold rounded-md mb-1.5 ${
+                post.category === "Berbagi Catatan"
+                  ? "bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400"
+                  : "bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-primary)]"
+              }`}>
+                {post.category === "Berbagi Catatan" ? "📝 Berbagi Catatan" : post.category}
               </span>
               <h3 className="font-bold text-base text-[var(--color-text)] mb-1">{post.title}</h3>
               <p className="text-xs text-[var(--color-text)] whitespace-pre-wrap leading-relaxed opacity-90">

@@ -54,9 +54,7 @@ export function Sidebar() {
       {/* Mobile Top Header */}
       <div className="fixed top-0 left-0 right-0 z-30 flex h-[var(--topbar-height)] items-center justify-between bg-[var(--color-bg)]/80 px-4 backdrop-blur-md md:hidden border-b border-[var(--color-border)]/50">
         <Link href="/app" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-primary)]/10 text-[var(--color-primary)] font-bold overflow-hidden">
-            <img src="/assets/images/secondry-logo.png" alt="Logo" className="w-full h-full object-cover" />
-          </div>
+          <img src="/assets/images/secondry-logo.png" alt="NeLK Logo" className="h-8 w-auto shadow-[var(--shadow-sm)] rounded-md" />
           <span className="text-base font-bold text-[var(--color-text)]">NeLK</span>
         </Link>
         <button className="flex h-10 w-10 items-center justify-center rounded-xl text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]">
@@ -177,9 +175,7 @@ export function Sidebar() {
       >
         <div className="flex h-[var(--topbar-height)] items-center justify-between px-4">
           <Link href="/app" className="flex items-center gap-2 overflow-hidden">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary)]/10 text-[var(--color-primary)] font-bold text-sm overflow-hidden">
-              <img src="/assets/images/secondry-logo.png" alt="Logo" className="w-full h-full object-cover" />
-            </div>
+            <img src="/assets/images/secondry-logo.png" alt="NeLK Logo" className="h-9 w-auto shrink-0 shadow-[var(--shadow-sm)] rounded-lg" />
             <AnimatePresence initial={false}>
               {!collapsed && (
                 <motion.span

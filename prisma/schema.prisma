@@ -49,6 +49,12 @@ model User {
   contextMode      String          @default("NORMAL")
   university       String?
   major            String?
+  profileImageUrl  String?
+  language         String          @default("id")
+  timeFormat       String          @default("24h")
+  timezone         String          @default("Asia/Jakarta")
+  notificationSettings Json?
+  privacyProfile   String          @default("private")
   accounts         Account[]
   sessions         Session[]
   tasks            Task[]
@@ -61,6 +67,7 @@ model User {
   posts            CommunityPost[]
   activities       Activity[]
   notifications    Notification[]
+  dailyQuizAttempts UserQuizAttempt[]
 }
 
 model VerificationToken {
@@ -81,6 +88,7 @@ model Task {
   priority    String    @default("MEDIUM")
   subject     String?
   dueDate     DateTime?
+  visibility  String    @default("private") // "public" | "private"
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt   DateTime  @default(now())
@@ -91,6 +99,7 @@ model Note {
   id           String      @id @default(cuid())
   title        String
   content      String?
+  visibility   String      @default("private") // "public" | "private"
   userId       String
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   collectionId String?
@@ -190,4 +199,27 @@ model Activity {
   createdAt DateTime @default(now())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DailyQuiz {
+  id            String   @id @default(cuid())
+  question      String
+  topic         String
+  correctAnswer String
+  options       Json?
+  date          DateTime @default(now())
+  attempts      Int      @default(0)
+  createdAt     DateTime @default(now())
+  userAttempts  UserQuizAttempt[]
+}
+
+model UserQuizAttempt {
+  id           String   @id @default(cuid())
+  userId       String
+  dailyQuizId  String
+  dailyQuiz    DailyQuiz @relation(fields: [dailyQuizId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answeredAt   DateTime @default(now())
+  isCorrect    Boolean
+  timeTaken    Int?
 }

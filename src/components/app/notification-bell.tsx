@@ -35,7 +35,7 @@ export function NotificationBell() {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <div className="fixed top-4 right-4 z-50 md:top-6 md:right-8">
+    <div className="fixed top-[calc(var(--topbar-height)+4px)] right-2 z-50 md:top-4 md:right-8">
       <button 
         onClick={handleOpen}
         className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-sm hover:shadow-md transition-shadow text-[var(--color-text)]"

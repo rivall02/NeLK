@@ -25,6 +25,7 @@ export default async function NotesPage() {
     content: n.content || "",
     preview: n.content ? n.content.slice(0, 100) : "",
     subject: "Umum",
+    visibility: n.visibility as "public" | "private",
     updatedAt: new Date(n.updatedAt).toLocaleDateString("id-ID", {
       day: "numeric",
       month: "short",

@@ -295,8 +295,137 @@ export async function deleteNote(id: string) {
 }
 
 // ----------------------------------------------------------------------
+// VISIBILITY ACTIONS (Feature #4: Public/Private Toggle)
+// ----------------------------------------------------------------------
+
+export async function toggleTaskVisibility(id: string) {
+  const user = await requireAuth();
+
+  const task = await prisma.task.findUnique({
+    where: { id, userId: user.id },
+  });
+
+  if (!task) throw new Error("Tugas tidak ditemukan.");
+
+  const newVisibility = task.visibility === "public" ? "private" : "public";
+
+  await prisma.task.update({
+    where: { id, userId: user.id },
+    data: { visibility: newVisibility },
+  });
+
+  revalidatePath("/app/tasks");
+  revalidatePath("/app/community");
+  return { visibility: newVisibility };
+}
+
+export async function toggleNoteVisibility(id: string) {
+  const user = await requireAuth();
+
+  const note = await prisma.note.findUnique({
+    where: { id, userId: user.id },
+  });
+
+  if (!note) throw new Error("Catatan tidak ditemukan.");
+
+  const newVisibility = note.visibility === "public" ? "private" : "public";
+
+  await prisma.note.update({
+    where: { id, userId: user.id },
+    data: { visibility: newVisibility },
+  });
+
+  // Auto-post to community when note becomes public
+  if (newVisibility === "public") {
+    const existingPost = await prisma.communityPost.findFirst({
+      where: {
+        userId: user.id,
+        category: "Berbagi Catatan",
+        title: note.title,
+      },
+    });
+
+    if (!existingPost) {
+      const excerpt = note.content ? note.content.slice(0, 200) + (note.content.length > 200 ? "..." : "") : "(Catatan tanpa konten)";
+      await prisma.communityPost.create({
+        data: {
+          title: `📝 ${note.title}`,
+          content: excerpt,
+          category: "Berbagi Catatan",
+          userId: user.id,
+        },
+      });
+    }
+  } else if (newVisibility === "private") {
+    // Remove auto-posted community post when going private
+    await prisma.communityPost.deleteMany({
+      where: {
+        userId: user.id,
+        category: "Berbagi Catatan",
+        title: `📝 ${note.title}`,
+      },
+    });
+  }
+
+  revalidatePath("/app/notes");
+  revalidatePath("/app/community");
+  return { visibility: newVisibility };
+}
+
+export async function getPublicNotes() {
+  return await prisma.note.findMany({
+    where: { visibility: "public" },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      user: {
+        select: { name: true, id: true },
+      },
+    },
+  });
+}
+
+// ----------------------------------------------------------------------
 // EVENT & SCHEDULE ACTIONS (P1 #6)
 // ----------------------------------------------------------------------
+
+export async function extractScheduleFromDocument(content: string) {
+  const user = await requireAuth();
+
+  if (!hasGeminiConfigured()) {
+    return { success: false, message: "AI belum aktif. Tambahkan GEMINI_API_KEY." };
+  }
+
+  const sanitized = (content || "").slice(0, 8000);
+  if (!sanitized.trim()) {
+    return { success: false, message: "Dokumen kosong tidak dapat dianalisis." };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Analisis dokumen/jadwal berikut dan ekstrak semua kegiatan/kuliah/jadwal. 
+Untuk setiap item, berikan: title, date (YYYY-MM-DD), startTime (HH:mm), endTime (HH:mm), description.
+Hanya return JSON array, tanpa markdown atau penjelasan lain.
+Contoh output: [{"title":"Kuliah Basis Data","date":"2026-09-01","startTime":"08:00","endTime":"09:30","description":"Ruang 301"}]
+
+Dokumen:\n${sanitized}`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    // Try to parse JSON from response
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return { success: true, events: parsed };
+    }
+
+    return { success: false, message: "Gagal mengekstrak jadwal dari dokumen. Pastikan dokumen berisi jadwal yang jelas." };
+  } catch (e) {
+    logger.error("AI Schedule extraction error", e);
+    return { success: false, message: "Terjadi kesalahan saat menganalisis dokumen." };
+  }
+}
 
 export async function createEvent(data: {
   title: string;
@@ -307,6 +436,59 @@ export async function createEvent(data: {
 }) {
   const user = await requireAuth();
   const validated = validateEventInput(data);
+
+  // Validate event duration (minimum 30 min, maximum 4 hours)
+  if (validated.startTime && validated.endTime) {
+    const [startH, startM] = validated.startTime.split(":").map(Number);
+    const [endH, endM] = validated.endTime.split(":").map(Number);
+    const startMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
+    const duration = endMinutes - startMinutes;
+
+    if (duration < 30) {
+      throw new Error("Durasi acara minimal 30 menit.");
+    }
+    if (duration > 240) {
+      throw new Error("Durasi acara maksimal 4 jam.");
+    }
+  }
+
+  // Check for schedule conflicts
+  if (validated.startTime && validated.endTime) {
+    const eventDate = new Date(validated.date);
+    eventDate.setHours(0, 0, 0, 0);
+
+    const existingEvents = await prisma.event.findMany({
+      where: {
+        userId: user.id,
+        date: {
+          gte: eventDate,
+          lt: new Date(eventDate.getTime() + 24 * 60 * 60 * 1000),
+        },
+      },
+    });
+
+    const [newStartH, newStartM] = validated.startTime.split(":").map(Number);
+    const [newEndH, newEndM] = validated.endTime.split(":").map(Number);
+    const newStart = newStartH * 60 + newStartM;
+    const newEnd = newEndH * 60 + newEndM;
+
+    for (const existing of existingEvents) {
+      if (existing.startTime && existing.endTime) {
+        const [existStartH, existStartM] = existing.startTime.split(":").map(Number);
+        const [existEndH, existEndM] = existing.endTime.split(":").map(Number);
+        const existStart = existStartH * 60 + existStartM;
+        const existEnd = existEndH * 60 + existEndM;
+
+        // Check for overlap: startA < endB && startB < endA
+        if (newStart < existEnd && existStart < newEnd) {
+          throw new Error(
+            `Jam ini sudah ditempati jadwal: "${existing.title}" (${existing.startTime} - ${existing.endTime}). Pilih waktu lain.`
+          );
+        }
+      }
+    }
+  }
 
   const event = await prisma.event.create({
     data: {
@@ -511,7 +693,15 @@ export async function summarizeContent(content: string) {
     return result.response.text();
   } catch (e) {
     logger.error("AI Summarize error", e);
-    return "Maaf, AI sedang sibuk atau mengalami kendala koneksi. Silakan coba sesaat lagi.";
+    if (e instanceof Error) {
+      if (e.message.includes("429") || e.message.includes(" quota")) {
+        return "Kamu telah mencapai batas penggunaan AI harian. Coba lagi besok.";
+      }
+      if (e.message.includes("timeout")) {
+        return "Timeout koneksi AI. Coba lagi dalam 30 detik.";
+      }
+    }
+    return "Terjadi kesalahan saat memproses permintaan AI. Coba lagi beberapa saat lagi.";
   }
 }
 
@@ -637,7 +827,18 @@ Pertanyaan: ${cleanQuery}`;
     return response.text();
   } catch (e) {
     logger.error("AI Chat error", e);
-    return "Maaf, AI sedang sibuk. Silakan coba lagi beberapa saat lagi.";
+    if (e instanceof Error) {
+      if (e.message.includes("429") || e.message.includes(" quota")) {
+        return "Kamu telah mencapai batas penggunaan AI harian. Coba lagi besok.";
+      }
+      if (e.message.includes("timeout")) {
+        return "Timeout koneksi AI. Coba lagi dalam 30 detik.";
+      }
+      if (e.message.includes("rate limit")) {
+        return "Anda telah mencapai batas pemakaian AI harian. Coba lagi besok.";
+      }
+    }
+    return "Terjadi kesalahan teknis. Coba lagi beberapa saat lagi.";
   }
 }
 
@@ -1018,6 +1219,54 @@ export async function updateUserProfile(data: { university?: string; major?: str
   revalidatePath("/app/settings");
 }
 
+export async function updateUserSettings(data: {
+  language?: string;
+  timeFormat?: string;
+  timezone?: string;
+  privacyProfile?: string;
+  notificationSettings?: any;
+  name?: string;
+}) {
+  const user = await requireAuth();
+
+  const updateData: any = {};
+  if (data.language) updateData.language = data.language;
+  if (data.timeFormat) updateData.timeFormat = data.timeFormat;
+  if (data.timezone) updateData.timezone = data.timezone;
+  if (data.privacyProfile) updateData.privacyProfile = data.privacyProfile;
+  if (data.notificationSettings) updateData.notificationSettings = data.notificationSettings;
+  if (data.name) updateData.name = data.name.trim().slice(0, 100);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: updateData,
+  });
+
+  revalidatePath("/app");
+  revalidatePath("/app/settings");
+  return { success: true };
+}
+
+export async function getIntegrationStatus() {
+  const user = await requireAuth();
+
+  const googleAccount = await prisma.account.findFirst({
+    where: { userId: user.id, provider: "google" },
+    select: { provider: true, access_token: true },
+  });
+
+  const stravaAccount = await prisma.account.findFirst({
+    where: { userId: user.id, provider: "strava" },
+    select: { provider: true, access_token: true },
+  });
+
+  return {
+    googleClassroom: !!googleAccount?.access_token,
+    googleDrive: !!googleAccount?.access_token,
+    strava: !!stravaAccount?.access_token,
+  };
+}
+
 // ----------------------------------------------------------------------
 // DASHBOARD & QUERY HELPERS (P1 #7)
 // ----------------------------------------------------------------------
@@ -1112,6 +1361,208 @@ export async function generateTaskReminders() {
 // ----------------------------------------------------------------------
 // COURSE ACTIONS
 // ----------------------------------------------------------------------
+
+export async function generateQuizFromContent(content: string) {
+  const user = await requireAuth();
+  enforceRateLimit(`ai:quiz:${user.id}`, 10, 60 * 1000, "AI Quiz Generation");
+
+  if (!hasGeminiConfigured()) {
+    return { success: false, message: "AI belum aktif. Tambahkan GEMINI_API_KEY." };
+  }
+
+  const sanitized = (content || "").slice(0, 6000);
+  if (!sanitized.trim()) {
+    return { success: false, message: "Konten kosong tidak dapat dijadikan kuis." };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Buatkan 5 soal kuis pilihan ganda dari materi berikut. Setiap soal harus memiliki 4 opsi (A, B, C, D) dan jawaban yang benar.
+Return dalam format JSON array: [{"question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"correctAnswer":"A"}]
+Tanpa markdown atau penjelasan lain.
+
+Materi:\n${sanitized}`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      return { success: true, questions: JSON.parse(jsonMatch[0]) };
+    }
+    return { success: false, message: "Gagal menghasilkan soal kuis." };
+  } catch (e) {
+    logger.error("AI Quiz generation error", e);
+    return { success: false, message: "Terjadi kesalahan saat menghasilkan kuis." };
+  }
+}
+
+export async function getDailyQuiz() {
+  const user = await requireAuth();
+
+  // Get today's date range (UTC)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  // Check if user already answered today
+  const existingAttempt = await prisma.userQuizAttempt.findFirst({
+    where: {
+      userId: user.id,
+      answeredAt: { gte: today, lt: tomorrow },
+    },
+    include: { dailyQuiz: true },
+  });
+
+  if (existingAttempt) {
+    return {
+      alreadyAttempted: true,
+      quiz: existingAttempt.dailyQuiz,
+      isCorrect: existingAttempt.isCorrect,
+      timeTaken: existingAttempt.timeTaken,
+    };
+  }
+
+  // Get or create today's quiz
+  let dailyQuiz = await prisma.dailyQuiz.findFirst({
+    where: {
+      date: { gte: today, lt: tomorrow },
+    },
+  });
+
+  if (!dailyQuiz) {
+    // Generate a new daily quiz from predefined questions
+    const topics = ["matematika", "sejarah", "umum", "sains", "bahasa"];
+    const topic = topics[Math.floor(Math.random() * topics.length)];
+
+    const questions = [
+      // Matematika
+      { q: "Berapa hasil dari 15 × 12?", opts: ["A. 180", "B. 170", "C. 190", "D. 160"], a: "A", t: "matematika" },
+      { q: "Akar kuadrat dari 144 adalah...", opts: ["A. 14", "B. 12", "C. 11", "D. 13"], a: "B", t: "matematika" },
+      { q: "Berapa hasil dari 2⁸?", opts: ["A. 128", "B. 256", "C. 64", "D. 512"], a: "B", t: "matematika" },
+      { q: "Jika x + 15 = 30, maka x = ...", opts: ["A. 20", "B. 15", "C. 25", "D. 10"], a: "B", t: "matematika" },
+      // Sejarah
+      { q: "Tahun berapa Indonesia merdeka?", opts: ["A. 1945", "B. 1950", "C. 1943", "D. 1947"], a: "A", t: "sejarah" },
+      { q: "Siapa proklamator kemerdekaan Indonesia?", opts: ["A. Soekarno & Hatta", "B. Soekarno & Sjahrir", "C. Hatta & Sjahrir", "D. Soekarno & Yamin"], a: "A", t: "sejarah" },
+      { q: "Apa nama perjanjian yang mengakhiri penjajahan Belanda?", opts: ["A. Perjanjian Renville", "B. Perjanjian Linggarjati", "C. Perjanjian Roem-Royen", "D. Perjanjian KMB"], a: "B", t: "sejarah" },
+      // Sains
+      { q: "Apa simbol kimia untuk air?", opts: ["A. H2O", "B. CO2", "C. NaCl", "D. O2"], a: "A", t: "sains" },
+      { q: "Planet terbesar di tata surya adalah...", opts: ["A. Saturnus", "B. Jupiter", "C. Uranus", "D. Neptunus"], a: "B", t: "sains" },
+      { q: "Satuan SI untuk gaya adalah...", opts: ["A. Watt", "B. Joule", "C. Newton", "D. Pascal"], a: "C", t: "sains" },
+      // Umum
+      { q: "Ibu kota Jepang adalah...", opts: ["A. Osaka", "B. Kyoto", "C. Tokyo", "D. Hiroshima"], a: "C", t: "umum" },
+      { q: "Bahasa pemrograman yang dibuat oleh Brendan Eich adalah...", opts: ["A. Python", "B. Java", "C. JavaScript", "D. C++"], a: "C", t: "umum" },
+      { q: "Lambang kimia untuk emas adalah...", opts: ["A. Ag", "B. Au", "C. Fe", "D. Cu"], a: "B", t: "umum" },
+      // Bahasa
+      { q: "Antonim dari 'rajin' adalah...", opts: ["A. Malas", "B. Pintar", "C. Cepat", "D. Kuat"], a: "A", t: "bahasa" },
+      { q: "Sinonim dari 'gembira' adalah...", opts: ["A. Sedih", "B. Senang", "C. Marah", "D. Takut"], a: "B", t: "bahasa" },
+      { q: "Kata 'MGMB' merupakan singkatan dari...", opts: ["A. Maka Gue莫 Begitu", "B. Maka Gue Mulai Belajar", "C. Makin Gue Mau Belajar", "D. Masa Gue Mau Buru"], a: "A", t: "bahasa" },
+    ];
+
+    // Pick a random question
+    const randomIdx = Math.floor(Math.random() * questions.length);
+    const picked = questions[randomIdx];
+
+    dailyQuiz = await prisma.dailyQuiz.create({
+      data: {
+        question: picked.q,
+        topic: picked.t,
+        correctAnswer: picked.a,
+        options: picked.opts,
+      },
+    });
+  }
+
+  return {
+    alreadyAttempted: false,
+    quiz: dailyQuiz,
+    isCorrect: null,
+    timeTaken: null,
+  };
+}
+
+export async function answerDailyQuiz(quizId: string, answer: string, timeTaken: number) {
+  const user = await requireAuth();
+
+  // Check if already answered
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const existing = await prisma.userQuizAttempt.findFirst({
+    where: {
+      userId: user.id,
+      dailyQuizId: quizId,
+      answeredAt: { gte: today, lt: tomorrow },
+    },
+  });
+
+  if (existing) {
+    throw new Error("Anda sudah menjawab kuis hari ini.");
+  }
+
+  const quiz = await prisma.dailyQuiz.findUnique({ where: { id: quizId } });
+  if (!quiz) throw new Error("Kuis tidak ditemukan.");
+
+  const isCorrect = quiz.correctAnswer.toUpperCase() === answer.toUpperCase();
+
+  await prisma.userQuizAttempt.create({
+    data: {
+      userId: user.id,
+      dailyQuizId: quizId,
+      isCorrect,
+      timeTaken: Math.min(timeTaken, 300),
+    },
+  });
+
+  // Update quiz attempt count
+  await prisma.dailyQuiz.update({
+    where: { id: quizId },
+    data: { attempts: { increment: 1 } },
+  });
+
+  // Award XP if correct
+  let gainedXp = 0;
+  if (isCorrect) {
+    gainedXp = 10;
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { xp: { increment: gainedXp } },
+    });
+
+    const newLevel = Math.floor(updatedUser.xp / 1000) + 1;
+    if (newLevel !== updatedUser.level) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { level: newLevel },
+      });
+    }
+  }
+
+  revalidatePath("/app/gamification");
+  return { isCorrect, gainedXp, correctAnswer: quiz.correctAnswer };
+}
+
+export async function getDailyQuizHistory() {
+  const user = await requireAuth();
+
+  const attempts = await prisma.userQuizAttempt.findMany({
+    where: { userId: user.id },
+    orderBy: { answeredAt: "desc" },
+    take: 10,
+    include: { dailyQuiz: true },
+  });
+
+  return attempts.map((a) => ({
+    question: a.dailyQuiz.question,
+    topic: a.dailyQuiz.topic,
+    isCorrect: a.isCorrect,
+    answeredAt: a.answeredAt,
+    timeTaken: a.timeTaken,
+  }));
+}
 
 export async function createCourse(title: string, description?: string) {
   const user = await requireAuth();

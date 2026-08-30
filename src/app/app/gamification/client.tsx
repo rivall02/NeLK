@@ -1,25 +1,54 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Trophy, GameController, Medal, Lightning } from "@phosphor-icons/react";
+import { Trophy, GameController, Medal, Lightning, Question, CheckCircle, XCircle, Clock } from "@phosphor-icons/react";
 import { useState, useEffect } from "react";
-import { recordFocusSessionXP } from "@/lib/actions";
+import { recordFocusSessionXP, getDailyQuiz, answerDailyQuiz } from "@/lib/actions";
 import { toast } from "sonner";
 
 export default function GamificationClient({
   initialUsers,
   currentUserXp,
   currentUserLevel,
+  currentUserId,
 }: {
   initialUsers: any[];
   currentUserXp: number;
   currentUserLevel: number;
+  currentUserId: string;
 }) {
   const [xp, setXp] = useState(currentUserXp);
   const [level, setLevel] = useState(currentUserLevel);
   const [clickCount, setClickCount] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [timeLeft, setTimeLeft] = useState(15);
+
+  // Daily Quiz State
+  const [dailyQuiz, setDailyQuiz] = useState<any>(null);
+  const [quizLoading, setQuizLoading] = useState(true);
+  const [quizAttempted, setQuizAttempted] = useState(false);
+  const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<string | null>(null);
+  const [quizResult, setQuizResult] = useState<{ isCorrect: boolean; gainedXp: number; correctAnswer: string } | null>(null);
+  const [quizTimeTaken, setQuizTimeTaken] = useState(0);
+
+  // Load daily quiz
+  useEffect(() => {
+    async function loadQuiz() {
+      try {
+        const result = await getDailyQuiz();
+        setDailyQuiz(result.quiz);
+        setQuizAttempted(result.alreadyAttempted);
+        if (result.alreadyAttempted && result.isCorrect !== null) {
+          setQuizResult({ isCorrect: result.isCorrect, gainedXp: result.isCorrect ? 10 : 0, correctAnswer: result.quiz.correctAnswer });
+        }
+      } catch (err) {
+        console.error("Failed to load daily quiz", err);
+      } finally {
+        setQuizLoading(false);
+      }
+    }
+    loadQuiz();
+  }, []);
 
   // Focus Game logic
   useEffect(() => {
@@ -60,8 +89,47 @@ export default function GamificationClient({
     }
   };
 
+  // Quiz timer
+  useEffect(() => {
+    if (dailyQuiz && !quizAttempted && !quizResult) {
+      const interval = setInterval(() => {
+        setQuizTimeTaken((prev) => prev + 1);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [dailyQuiz, quizAttempted, quizResult]);
+
+  const handleQuizAnswer = async (answer: string) => {
+    if (quizAttempted || !dailyQuiz) return;
+    setSelectedQuizAnswer(answer);
+
+    try {
+      const result = await answerDailyQuiz(dailyQuiz.id, answer, quizTimeTaken);
+      setQuizResult(result);
+      setQuizAttempted(true);
+      if (result.isCorrect) {
+        setXp((prev) => prev + result.gainedXp);
+        const newLevel = Math.floor((xp + result.gainedXp) / 1000) + 1;
+        if (newLevel > level) setLevel(newLevel);
+        toast.success(`Benar! +${result.gainedXp} XP 🎉`);
+      } else {
+        toast.info(`Jawaban: ${result.correctAnswer}. Coba lagi besok!`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Gagal menyimpan jawaban.");
+    }
+  };
+
   const xpForNextLevel = 1000;
   const xpProgress = Math.min(100, Math.round(((xp % xpForNextLevel) / xpForNextLevel) * 100));
+
+  const topicEmojis: Record<string, string> = {
+    matematika: "🔢",
+    sejarah: "📜",
+    umum: "🌍",
+    sains: "🔬",
+    bahasa: "📖",
+  };
 
   return (
     <div className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 pt-6 min-h-screen">
@@ -80,7 +148,7 @@ export default function GamificationClient({
           transition={{ delay: 0.1 }}
           className="text-[var(--color-text-muted)] mt-1 text-sm"
         >
-          Kumpulkan XP dari penyelesaian tugas dan latihan fokus untuk menaikkan level akademikmu!
+          Kumpulkan XP dari penyelesaian tugas, kuis harian, dan latihan fokus untuk menaikkan level akademikmu!
         </motion.p>
       </header>
 
@@ -108,6 +176,84 @@ export default function GamificationClient({
           <p className="text-[11px] font-semibold text-[var(--color-text-muted)] w-full text-right">
             {xp % xpForNextLevel} / {xpForNextLevel} XP menuju Level {level + 1}
           </p>
+        </motion.div>
+
+        {/* Daily Quiz Card */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.25 }}
+          className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-3xl p-6 shadow-md text-white flex flex-col justify-between md:col-span-2"
+        >
+          <div>
+            <div className="flex justify-between items-start mb-3">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Question weight="fill" className="text-yellow-300" />
+                Kuis Harian
+              </h2>
+              {!quizLoading && !quizAttempted && dailyQuiz && (
+                <div className="bg-white/20 px-3 py-1 rounded-xl font-mono text-sm font-bold backdrop-blur-sm">
+                  ⏱ {quizTimeTaken}s
+                </div>
+              )}
+              {quizAttempted && (
+                <div className={`px-3 py-1 rounded-xl text-xs font-bold backdrop-blur-sm ${quizResult?.isCorrect ? "bg-green-400/30 text-green-200" : "bg-white/20 text-white/80"}`}>
+                  {quizResult?.isCorrect ? "✅ Benar!" : "❌ Salah"}
+                </div>
+              )}
+            </div>
+
+            {quizLoading ? (
+              <div className="py-4 text-center">
+                <div className="h-6 w-6 animate-spin rounded-full border-4 border-white border-t-transparent mx-auto" />
+              </div>
+            ) : dailyQuiz ? (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">{topicEmojis[dailyQuiz.topic] || "❓"}</span>
+                  <span className="text-xs font-medium text-white/70 capitalize">{dailyQuiz.topic}</span>
+                </div>
+                <p className="text-base font-semibold mb-4">{dailyQuiz.question}</p>
+
+                {dailyQuiz.options && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {(Array.isArray(dailyQuiz.options) ? dailyQuiz.options : []).map((opt: string, idx: number) => {
+                      const optionLetter = opt.charAt(0);
+                      const isCorrectOption = optionLetter === dailyQuiz.correctAnswer;
+                      const isSelected = selectedQuizAnswer === optionLetter;
+
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => handleQuizAnswer(optionLetter)}
+                          disabled={quizAttempted}
+                          className={`text-left px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                            quizAttempted && isCorrectOption
+                              ? "bg-green-400/30 border border-green-300/50 text-green-100"
+                              : quizAttempted && isSelected && !isCorrectOption
+                              ? "bg-red-400/30 border border-red-300/50 text-red-100"
+                              : "bg-white/10 hover:bg-white/20 border border-white/10 text-white"
+                          }`}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {quizAttempted && quizResult && (
+                  <div className="mt-3 text-xs text-white/70">
+                    {quizResult.isCorrect
+                      ? `🎉 Benar! +${quizResult.gainedXp} XP diperoleh.`
+                      : `Jawaban yang benar: ${dailyQuiz.correctAnswer}. Coba lagi besok!`}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-white/70">Tidak ada kuis hari ini.</p>
+            )}
+          </div>
         </motion.div>
 
         {/* Mini Focus Game */}
@@ -175,7 +321,7 @@ export default function GamificationClient({
               <Medal weight="fill" className="text-yellow-500" />
               Peringkat Mahasiswa Teraktif
             </h2>
-            <span className="text-xs text-[var(--color-text-muted)]">Top 20 Pengguna</span>
+            <span className="text-xs text-[var(--color-text-muted)]">Top 10 Pengguna</span>
           </div>
 
           <div>
@@ -185,10 +331,10 @@ export default function GamificationClient({
               </div>
             ) : (
               <div className="divide-y divide-[var(--color-border)]">
-                {initialUsers.slice(0, 20).map((user, idx) => (
+                {initialUsers.slice(0, 10).map((user, idx) => (
                   <div
                     key={user.id}
-                    className="p-4 px-6 flex items-center gap-4 hover:bg-[var(--color-surface-hover)] transition-colors"
+                    className={`p-4 px-6 flex items-center gap-4 hover:bg-[var(--color-surface-hover)] transition-colors ${user.id === currentUserId ? "bg-[var(--color-primary-light)]/50" : ""}`}
                   >
                     <div
                       className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs ${
@@ -209,6 +355,7 @@ export default function GamificationClient({
                     <div className="flex-1 min-w-0">
                       <h4 className="font-semibold text-xs text-[var(--color-text)] truncate">
                         {user.name || "Anonim"}
+                        {user.id === currentUserId && <span className="text-[var(--color-primary)] ml-1">(Anda)</span>}
                       </h4>
                       <p className="text-[11px] text-[var(--color-text-muted)]">Level {user.level}</p>
                     </div>

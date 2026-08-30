@@ -12,6 +12,8 @@ import {
   FloppyDisk,
   CheckCircle,
   WarningCircle,
+  Eye,
+  EyeSlash,
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import {
@@ -19,6 +21,7 @@ import {
   updateNote,
   deleteNote as deleteNoteAction,
   summarizeContent,
+  toggleNoteVisibility,
 } from "@/lib/actions";
 
 interface Note {
@@ -27,6 +30,7 @@ interface Note {
   content: string;
   preview: string;
   subject: string;
+  visibility?: "public" | "private";
   updatedAt: string;
 }
 
@@ -183,6 +187,30 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
     }
   }
 
+  async function handleToggleVisibility(id: string) {
+    const note = notes.find((n) => n.id === id);
+    if (!note) return;
+    const previousVisibility = note.visibility;
+    const newVisibility = previousVisibility === "public" ? "private" : "public";
+
+    setNotes((current) =>
+      current.map((n) => (n.id === id ? { ...n, visibility: newVisibility } : n))
+    );
+    if (selectedNote?.id === id) {
+      setSelectedNote((prev) => prev ? { ...prev, visibility: newVisibility } : null);
+    }
+
+    try {
+      await toggleNoteVisibility(id);
+      toast.success(`Catatan sekarang ${newVisibility === "public" ? "publik" : "privat"}.`);
+    } catch (err: any) {
+      setNotes((current) =>
+        current.map((n) => (n.id === id ? { ...n, visibility: previousVisibility } : n))
+      );
+      toast.error(err.message || "Gagal mengubah visibilitas.");
+    }
+  }
+
   async function handleSummarize() {
     if (!editorContent.trim()) {
       toast.error("Tulis konten catatan terlebih dahulu sebelum membuat ringkasan AI.");
@@ -268,7 +296,7 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
               >
                 <div className="flex items-start justify-between gap-2">
                   <p
-                    className={`text-sm font-semibold truncate ${
+                    className={`text-sm font-semibold truncate flex-1 ${
                       selectedNote?.id === note.id
                         ? "text-[var(--color-primary)]"
                         : "text-[var(--color-text)]"
@@ -276,16 +304,33 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
                   >
                     {note.title}
                   </p>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteNote(note.id);
-                    }}
-                    className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-950/40 group-hover:flex transition-colors"
-                    aria-label="Hapus catatan"
-                  >
-                    <Trash size={13} />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleVisibility(note.id);
+                      }}
+                      className={`h-5 w-5 flex items-center justify-center rounded-md transition-colors ${
+                        note.visibility === "public"
+                          ? "text-[var(--color-primary)]"
+                          : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                      } group-hover:flex hidden md:flex`}
+                      title={note.visibility === "public" ? "Publik" : "Privat"}
+                      aria-label="Toggle visibilitas"
+                    >
+                      {note.visibility === "public" ? <Eye size={12} /> : <EyeSlash size={12} />}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteNote(note.id);
+                      }}
+                      className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-950/40 group-hover:flex transition-colors"
+                      aria-label="Hapus catatan"
+                    >
+                      <Trash size={13} />
+                    </button>
+                  </div>
                 </div>
                 <p className="mt-1 text-xs text-[var(--color-text-muted)] line-clamp-2">
                   {note.content ? note.content.slice(0, 100) : "(Catatan kosong)"}

@@ -4,7 +4,7 @@ import FilesClient from "./client";
 import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: "Dokumen & Modul - NeLK",
+  title: "Files & Belajar - NeLK",
 };
 
 function formatBytes(bytes?: number | null): string {
@@ -21,17 +21,24 @@ export default async function FilesPage() {
     redirect("/login");
   }
 
-  // Fetch documents from DB
-  const documents = await prisma.document.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-  });
+  const [documents, courses] = await Promise.all([
+    prisma.document.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.course.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "desc" },
+      include: { flashcards: true },
+    }),
+  ]);
 
   const mappedDocs = documents.map((d) => ({
     id: d.id,
     name: d.title,
     size: formatBytes(d.fileSize),
     type: d.title.toLowerCase().endsWith(".pdf") ? "pdf" : "text",
+    content: d.content || "",
     date: new Date(d.createdAt).toLocaleDateString("id-ID", {
       day: "numeric",
       month: "short",
@@ -40,5 +47,12 @@ export default async function FilesPage() {
     downloadUrl: `/api/documents/${d.id}/download`,
   }));
 
-  return <FilesClient initialFiles={mappedDocs} />;
+  const mappedCourses = courses.map((c) => ({
+    id: c.id,
+    title: c.title,
+    description: c.description || "",
+    flashcardCount: c.flashcards.length,
+  }));
+
+  return <FilesClient initialFiles={mappedDocs} initialCourses={mappedCourses} />;
 }

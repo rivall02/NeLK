@@ -161,11 +161,87 @@ export default function DashboardPage() {
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Mobile: AI Insight first, then Schedule, then Tasks below */}
+        {/* AI Insight + Schedule - mobile visible first, desktop in right column */}
+        <div className="space-y-6 lg:hidden">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+            className="rounded-3xl border border-[var(--color-border)] p-6 shadow-sm bg-gradient-to-br from-[#8B5CF6]/10 to-[var(--color-surface)]"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Brain size={20} weight="duotone" className="text-[#8B5CF6]" />
+                <h2 className="text-base font-bold text-[var(--color-text)]">Insight AI NeLK</h2>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#8B5CF6] bg-[#8B5CF6]/15 px-2 py-0.5 rounded-full">
+                Asisten Akademik
+              </span>
+            </div>
+            {noteSummary && noteSummary.title && (
+              <div className="mb-2 text-xs font-bold text-[var(--color-text)] px-2.5 py-1 bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] inline-block">
+                📚 {noteSummary.title}
+              </div>
+            )}
+            <div className="text-xs leading-relaxed text-[var(--color-text-muted)] whitespace-pre-wrap">
+              {noteSummary ? noteSummary.summary : "Menganalisis pola belajarmu..."}
+            </div>
+            <div className="mt-4 pt-3 border-t border-[var(--color-border)] flex items-center justify-between">
+              <Link href="/app/ai" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#8B5CF6] hover:underline">
+                <Lightning size={12} weight="fill" />
+                Tanya AI Lebih Lanjut
+              </Link>
+              <Link href="/app/notes" className="text-xs font-medium text-[var(--color-text-muted)] hover:underline">
+                Catatan
+              </Link>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.25 }}
+            className="rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <CalendarDots size={20} weight="duotone" className="text-[var(--color-primary)]" />
+                <h2 className="text-base font-bold text-[var(--color-text)]">Jadwal Hari Ini</h2>
+              </div>
+              <Link href="/app/schedule" className="text-xs font-semibold text-[var(--color-primary)] hover:underline">
+                Buka Kalender
+              </Link>
+            </div>
+            <div className="space-y-3">
+              {schedule.length > 0 ? (
+                schedule.map((item) => (
+                  <div key={item.id} className="flex items-start gap-3 p-2.5 rounded-xl bg-[var(--color-bg)] border-l-4 border-[var(--color-primary)]">
+                    <span className="text-xs font-mono font-semibold text-[var(--color-primary)] w-14 shrink-0 pt-0.5">
+                      {item.startTime || "--:--"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-[var(--color-text)] truncate">{item.title}</p>
+                      <p className="text-[11px] text-[var(--color-text-muted)]">
+                        {item.startTime && item.endTime ? `${item.startTime} - ${item.endTime}` : "Hari ini"}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-[var(--color-text-muted)] py-4 text-center">
+                  Tidak ada agenda kuliah atau kegiatan hari ini.
+                </p>
+              )}
+            </div>
+          </motion.div>
+        </div>
+
         {/* Tasks Section (Col 1-2) */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.2 }}
+          transition={{ duration: 0.4, delay: 0.3 }}
           className="lg:col-span-2 rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm flex flex-col justify-between"
         >
           <div>
@@ -229,8 +305,8 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* Right Column: AI Insight & Today's Schedule */}
-        <div className="space-y-6">
+        {/* Right Column: AI Insight & Today's Schedule (desktop only) */}
+        <div className="space-y-6 hidden lg:block">
           {/* Proactive AI Insight */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}

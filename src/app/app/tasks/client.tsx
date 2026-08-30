@@ -14,6 +14,8 @@ import {
   ArrowClockwise,
   CalendarBlank,
   Tag,
+  Eye,
+  EyeSlash,
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import {
@@ -21,6 +23,7 @@ import {
   updateTaskStatus,
   deleteTask as deleteTaskAction,
   syncGoogleClassroom,
+  toggleTaskVisibility,
 } from "@/lib/actions";
 import { CanonicalTaskPriority, CanonicalTaskStatus } from "@/lib/validations";
 
@@ -32,6 +35,7 @@ interface Task {
   priority: CanonicalTaskPriority;
   status: CanonicalTaskStatus;
   subject?: string;
+  visibility?: "public" | "private";
 }
 
 const tabs: { key: CanonicalTaskStatus; label: string; icon: any }[] = [
@@ -58,8 +62,35 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
   const [newSubject, setNewSubject] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ connected: boolean; count: number } | null>(null);
+  const [visibilityFilter, setVisibilityFilter] = useState<"all" | "public" | "private">("all");
 
-  const filtered = tasks.filter((t) => t.status === activeTab);
+  const filtered = tasks.filter((t) => {
+    if (t.status !== activeTab) return false;
+    if (visibilityFilter === "all") return true;
+    return t.visibility === visibilityFilter;
+  });
+
+  async function handleToggleVisibility(id: string) {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    const previousVisibility = task.visibility;
+    const newVisibility = previousVisibility === "public" ? "private" : "public";
+
+    setTasks((current) =>
+      current.map((t) => (t.id === id ? { ...t, visibility: newVisibility } : t))
+    );
+
+    try {
+      await toggleTaskVisibility(id);
+      toast.success(`Tugas sekarang ${newVisibility === "public" ? "publik" : "privat"}.`);
+    } catch (err: any) {
+      setTasks((current) =>
+        current.map((t) => (t.id === id ? { ...t, visibility: previousVisibility } : t))
+      );
+      toast.error(err.message || "Gagal mengubah visibilitas.");
+    }
+  }
 
   async function toggleComplete(id: string) {
     const task = tasks.find((t) => t.id === id);
@@ -169,10 +200,13 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
     setIsSyncing(true);
     try {
       const result = await syncGoogleClassroom();
+      setSyncStatus({ connected: result.connected, count: result.count });
       if (result.success) {
-        toast.success(result.message || `Berhasil menyinkronkan ${result.count} tugas.`);
+        toast.success(result.message || `Berhasil menyinkronkan ${result.count} tugas dari Google Classroom.`);
+        // Refresh page to show new tasks
+        window.location.reload();
       } else {
-        toast.info(result.message || "Google Classroom belum terhubung.");
+        toast.info(result.message || "Google Classroom belum terhubung. Hubungkan akun Google Anda di Pengaturan.");
       }
     } catch (e: any) {
       toast.error(e.message || "Gagal menyinkronkan tugas.");
@@ -208,6 +242,18 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
           >
             <ArrowClockwise size={16} weight="bold" className={isSyncing ? "animate-spin" : ""} />
             {isSyncing ? "Menyinkronkan..." : "Sync Classroom"}
+            {syncStatus && syncStatus.connected && (
+              <span className="flex items-center gap-1 text-xs">
+                <span className="w-2 h-2 rounded-full bg-green-500" />
+                {syncStatus.count > 0 ? `${syncStatus.count} baru` : "Terhubung"}
+              </span>
+            )}
+            {syncStatus && !syncStatus.connected && (
+              <span className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
+                <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                Belum terhubung
+              </span>
+            )}
           </motion.button>
 
           <motion.button
@@ -314,6 +360,28 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Visibility Filter */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-semibold text-[var(--color-text-muted)]">Visibilitas:</span>
+        {([
+          { key: "all", label: "Semua" },
+          { key: "public", label: "Publik" },
+          { key: "private", label: "Privat" },
+        ] as const).map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setVisibilityFilter(f.key)}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+              visibilityFilter === f.key
+                ? "bg-[var(--color-primary)] text-white"
+                : "bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-1 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-sm">
@@ -422,6 +490,19 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
 
                 {/* Actions */}
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleToggleVisibility(task.id)}
+                    className={`h-8 w-8 inline-flex items-center justify-center rounded-lg transition-colors ${
+                      task.visibility === "public"
+                        ? "text-[var(--color-primary)] bg-[var(--color-primary-light)]"
+                        : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"
+                    }`}
+                    title={task.visibility === "public" ? "Publik (terlihat semua orang)" : "Privat (hanya Anda)"}
+                    aria-label="Toggle visibilitas"
+                  >
+                    {task.visibility === "public" ? <Eye size={16} /> : <EyeSlash size={16} />}
+                  </button>
+
                   {task.status === "TODO" && (
                     <button
                       onClick={() => moveToInProgress(task.id)}

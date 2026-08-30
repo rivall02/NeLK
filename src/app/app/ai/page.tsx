@@ -141,7 +141,11 @@ export default function AIPage() {
 
   async function handleSend(text: string) {
     if (!text.trim() || isTyping) return;
-    
+    if (text.trim().length < 2) {
+      setMessages(prev => [...prev, { role: "ai", content: "Silakan masukkan pertanyaan yang lebih spesifik (minimal 2 karakter)." }]);
+      return;
+    }
+
     setMessages(prev => [...prev, { role: "user", content: text }]);
     setQuery("");
     setIsTyping(true);
@@ -149,9 +153,16 @@ export default function AIPage() {
     try {
       const response = await askAI(text);
       setMessages(prev => [...prev, { role: "ai", content: response }]);
-    } catch (e) {
-      console.error(e);
-      setMessages(prev => [...prev, { role: "ai", content: "Error communicating with AI." }]);
+    } catch (e: any) {
+      console.error("AI Error:", e);
+      const errorMsg = e?.message || "Terjadi kesalahan tidak terduga. Coba lagi beberapa saat lagi.";
+      if (errorMsg.includes("Terlalu banyak") || errorMsg.includes("rate limit")) {
+        setMessages(prev => [...prev, { role: "ai", content: "Anda telah mencapai batas pemakaian AI harian. Coba lagi beberapa saat lagi." }]);
+      } else if (errorMsg.includes("Unauthorized")) {
+        setMessages(prev => [...prev, { role: "ai", content: "Sesi Anda telah berakhir. Silakan login ulang untuk menggunakan AI." }]);
+      } else {
+        setMessages(prev => [...prev, { role: "ai", content: `Terjadi kesalahan: ${errorMsg}` }]);
+      }
     } finally {
       setIsTyping(false);
     }

@@ -12,13 +12,17 @@ import {
   Sparkle,
   CheckCircle,
   X,
+  FilePdf,
+  FileText,
+  UploadSimple,
 } from "@phosphor-icons/react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
   createEvent,
   deleteEvent as deleteEventAction,
   autoScheduleStudy,
+  extractScheduleFromDocument,
 } from "@/lib/actions";
 
 interface ScheduleEvent {
@@ -79,6 +83,11 @@ export default function ScheduleClient({
   const [newEndTime, setNewEndTime] = useState("10:30");
   const [newDescription, setNewDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [conflictInfo, setConflictInfo] = useState<string | null>(null);
+  const [durationError, setDurationError] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractedEvents, setExtractedEvents] = useState<any[]>([]);
 
   // Calculate days in current selected month
   const daysInMonth = useMemo(() => {
@@ -119,6 +128,54 @@ export default function ScheduleClient({
     }
   };
 
+  const checkConflicts = (startTime: string, endTime: string) => {
+    // Check duration
+    const [startH, startM] = startTime.split(":").map(Number);
+    const [endH, endM] = endTime.split(":").map(Number);
+    const duration = (endH * 60 + endM) - (startH * 60 + startM);
+
+    if (duration < 30) {
+      setDurationError("Durasi minimal 30 menit.");
+    } else if (duration > 240) {
+      setDurationError("Durasi maksimal 4 jam per kegiatan.");
+    } else {
+      setDurationError(null);
+    }
+
+    // Check conflicts
+    const conflict = todayEvents.find((ev) => {
+      if (!ev.startTime || !ev.endTime) return false;
+      return ev.startTime < endTime && startTime < ev.endTime;
+    });
+
+    if (conflict) {
+      setConflictInfo(`Jam ini sudah ditempati jadwal: "${conflict.title}" (${conflict.startTime} - ${conflict.endTime})`);
+    } else {
+      setConflictInfo(null);
+    }
+  };
+
+  // Check conflicts when time changes
+  const handleTimeChange = (field: 'start' | 'end', value: string) => {
+    if (field === 'start') {
+      setNewStartTime(value);
+      checkConflicts(value, newEndTime);
+    } else {
+      setNewEndTime(value);
+      checkConflicts(newStartTime, value);
+    }
+  };
+
+  const openAddModal = () => {
+    setNewTitle("");
+    setNewDescription("");
+    setNewStartTime("09:00");
+    setNewEndTime("10:30");
+    setConflictInfo(null);
+    setDurationError(null);
+    setShowAddModal(true);
+  };
+
   const handleAddEventSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) {
@@ -131,14 +188,11 @@ export default function ScheduleClient({
       return;
     }
 
-    // Check for overlapping events on the selected date
-    const hasConflict = todayEvents.some((ev) => {
-      if (!ev.startTime || !ev.endTime) return false;
-      return ev.startTime < newEndTime && newStartTime < ev.endTime;
-    });
-
-    if (hasConflict) {
-      toast.warning("Peringatan: Waktu kegiatan ini bertabrakan dengan jadwal yang sudah ada.");
+    // Final validation check
+    checkConflicts(newStartTime, newEndTime);
+    if (conflictInfo || durationError) {
+      toast.error(conflictInfo || durationError);
+      return;
     }
 
     setIsSubmitting(true);
@@ -258,7 +312,7 @@ export default function ScheduleClient({
 
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={() => setShowAddModal(true)}
+            onClick={openAddModal}
             className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] rounded-xl text-sm font-semibold transition-colors active:scale-95 shadow-sm"
           >
             <Plus weight="bold" />
@@ -518,7 +572,7 @@ export default function ScheduleClient({
                       type="time"
                       required
                       value={newStartTime}
-                      onChange={(e) => setNewStartTime(e.target.value)}
+                      onChange={(e) => handleTimeChange('start', e.target.value)}
                       className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] outline-none"
                     />
                   </div>
@@ -531,7 +585,7 @@ export default function ScheduleClient({
                       type="time"
                       required
                       value={newEndTime}
-                      onChange={(e) => setNewEndTime(e.target.value)}
+                      onChange={(e) => handleTimeChange('end', e.target.value)}
                       className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] outline-none"
                     />
                   </div>
@@ -558,15 +612,154 @@ export default function ScheduleClient({
                   >
                     Batal
                   </button>
+                  {(conflictInfo || durationError) && (
+                    <div className="col-span-full text-xs text-[var(--color-error)] bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded-xl border border-red-200 dark:border-red-800">
+                      {conflictInfo || durationError}
+                    </div>
+                  )}
                   <button
                     type="submit"
-                    disabled={isSubmitting}
-                    className="px-5 py-2 rounded-xl bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] text-sm font-semibold shadow-sm disabled:opacity-50"
+                    disabled={isSubmitting || !!conflictInfo || !!durationError}
+                    className="px-5 py-2 rounded-xl bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] text-sm font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isSubmitting ? "Menyimpan..." : "Simpan Jadwal"}
+                    {isSubmitting ? "Menyimpan..." : conflictInfo || durationError ? "Perbaiki Jadwal" : "Simpan Jadwal"}
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Import Schedule Modal */}
+      <AnimatePresence>
+        {showImportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+                <h3 className="text-lg font-bold text-[var(--color-text)]">Import Jadwal dari File</h3>
+                <button
+                  onClick={() => { setShowImportModal(false); setExtractedEvents([]); }}
+                  className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                Upload file PDF atau gambar yang berisi jadwal kuliah/kegiatan. AI akan menganalisis dan mengekstrak jadwal secara otomatis.
+              </div>
+
+              {/* Upload Area */}
+              <div
+                className="border-2 border-dashed border-[var(--color-border)] rounded-2xl p-8 text-center hover:border-[var(--color-primary)] transition-colors cursor-pointer"
+                onClick={() => document.getElementById('schedule-file-input')?.click()}
+              >
+                <input
+                  type="file"
+                  id="schedule-file-input"
+                  className="hidden"
+                  accept=".pdf,.png,.jpg,.jpeg,.txt"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setIsExtracting(true);
+                    try {
+                      let content = "";
+                      if (file.type === "application/pdf") {
+                        const bytes = await file.arrayBuffer();
+                        const buffer = Buffer.from(bytes);
+                        const pdfParse = (await import("pdf-parse") as any).default || (await import("pdf-parse"));
+                        const data = await pdfParse(buffer);
+                        content = data.text || "";
+                      } else if (file.type.startsWith("text/")) {
+                        content = await file.text();
+                      } else {
+                        toast.error("Format file tidak didukung. Gunakan PDF atau file teks.");
+                        setIsExtracting(false);
+                        return;
+                      }
+
+                      const result = await extractScheduleFromDocument(content);
+                      if (result.success && result.events) {
+                        setExtractedEvents(result.events);
+                        toast.success(`Berhasil mengekstrak ${result.events.length} jadwal dari dokumen!`);
+                      } else {
+                        toast.error(result.message || "Gagal mengekstrak jadwal.");
+                      }
+                    } catch (err: any) {
+                      toast.error(err.message || "Gagal membaca file.");
+                    } finally {
+                      setIsExtracting(false);
+                      e.target.value = "";
+                    }
+                  }}
+                />
+                {isExtracting ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--color-ai)] border-t-transparent" />
+                    <p className="text-sm font-medium text-[var(--color-text-muted)]">AI sedang menganalisis jadwal...</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <UploadSimple size={32} className="text-[var(--color-text-muted)]" weight="duotone" />
+                    <p className="text-sm font-medium text-[var(--color-text)]">Klik untuk upload file</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">PDF, TXT, atau gambar (max 10MB)</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Extracted Events Preview */}
+              {extractedEvents.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-bold text-[var(--color-text)]">Jadwal yang Ditemukan:</h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {extractedEvents.map((ev, idx) => (
+                      <div key={idx} className="flex items-center gap-3 p-3 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)]">
+                        <CheckCircle size={18} className="text-green-500 shrink-0" weight="fill" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-[var(--color-text)] truncate">{ev.title}</p>
+                          <p className="text-xs text-[var(--color-text-muted)]">{ev.date} • {ev.startTime} - {ev.endTime}</p>
+                          {ev.description && <p className="text-xs text-[var(--color-text-muted)] mt-0.5">{ev.description}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={async () => {
+                      let addedCount = 0;
+                      for (const ev of extractedEvents) {
+                        try {
+                          await createEvent({
+                            title: ev.title,
+                            date: new Date(ev.date),
+                            startTime: ev.startTime,
+                            endTime: ev.endTime,
+                            description: ev.description || undefined,
+                          });
+                          addedCount++;
+                        } catch (err: any) {
+                          toast.error(`Gagal menambahkan "${ev.title}": ${err.message}`);
+                        }
+                      }
+                      if (addedCount > 0) {
+                        toast.success(`${addedCount} jadwal berhasil ditambahkan!`);
+                        window.location.reload();
+                      }
+                      setShowImportModal(false);
+                      setExtractedEvents([]);
+                    }}
+                    className="w-full px-4 py-2.5 rounded-xl bg-[var(--color-primary)] text-white font-semibold text-sm hover:bg-[var(--color-primary-hover)] transition-colors"
+                  >
+                    Tambahkan {extractedEvents.length} Jadwal ke Kalender
+                  </button>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
