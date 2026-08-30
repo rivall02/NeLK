@@ -1,140 +1,228 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Sparkle, FileText, CheckSquare, CalendarDots, User } from "@phosphor-icons/react";
-import { useState } from "react";
-import { askAI } from "@/lib/actions";
+import { Sparkle, FileText, CheckSquare, CalendarDots, User, Lightning, Brain } from "@phosphor-icons/react";
+import { useState, useEffect } from "react";
+import { askAI, getAIModelsList } from "@/lib/actions";
+import type { AIModelId, AIModelOption } from "@/lib/ai";
 
-type Message = { role: "user" | "ai", content: string };
+type Message = { role: "user" | "ai"; content: string; modelName?: string };
 
 export default function AIPage() {
   const [query, setQuery] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [models, setModels] = useState<AIModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState<AIModelId>("groq-gpt-oss-20b");
+
+  useEffect(() => {
+    async function loadModels() {
+      try {
+        const available = await getAIModelsList();
+        setModels(available);
+      } catch {
+        // Fallback default models
+      }
+    }
+    loadModels();
+  }, []);
 
   const suggestions = [
-    { text: "Summarize my notes on Data Structures", icon: <FileText /> },
-    { text: "Help me break down the Software Eng project", icon: <CheckSquare /> },
-    { text: "Find time for 2 hours of study today", icon: <CalendarDots /> },
+    { text: "Rangkum materi Struktur Data & Algoritma", icon: <FileText size={18} /> },
+    { text: "Bantu breakdown tugas proyek pemrograman ke to-do list", icon: <CheckSquare size={18} /> },
+    { text: "Carikan jadwal belajar 2 jam fokus hari ini", icon: <CalendarDots size={18} /> },
+  ];
+
+  const modelTabs = [
+    {
+      id: "groq-gpt-oss-20b" as AIModelId,
+      name: "GPT-OSS 20B",
+      badge: "⚡ Super Cepat",
+      icon: Lightning,
+    },
+    {
+      id: "gemini-2.5-flash" as AIModelId,
+      name: "Gemini 2.5 Flash",
+      badge: "📚 Multimodal",
+      icon: FileText,
+    },
+    {
+      id: "mimo-v2.5" as AIModelId,
+      name: "Mimo v2.5",
+      badge: "🧠 Deep Reasoning",
+      icon: Brain,
+    },
   ];
 
   return (
-    <div className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8 pt-20 md:pt-8 min-h-[calc(100vh-80px)] flex flex-col">
-      <header className="mb-8 text-center flex flex-col items-center">
-        <motion.div 
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: "spring", stiffness: 200, damping: 20 }}
-          className="w-16 h-16 rounded-2xl bg-[#8B5CF6]/10 text-[#8B5CF6] flex items-center justify-center mb-4"
-        >
-          <Sparkle weight="fill" className="text-3xl" />
-        </motion.div>
-        <motion.h1 
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-3xl font-bold text-nelk-text-light dark:text-nelk-text-dark tracking-tight"
-        >
-          NeLK AI
-        </motion.h1>
-        <motion.p 
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="text-nelk-text-light/60 dark:text-nelk-text-dark/60 mt-2 max-w-lg"
-        >
-          Your personal academic assistant. Ask questions, generate study plans, or summarize your notes.
-        </motion.p>
-      </header>
+    <div className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-6 min-h-[calc(100vh-80px)] flex flex-col justify-between">
+      {/* Top Header */}
+      <div>
+        <header className="mb-6 text-center flex flex-col items-center">
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", stiffness: 200, damping: 20 }}
+            className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-[var(--color-primary)] to-[var(--color-ai)] text-white flex items-center justify-center mb-3 shadow-[var(--shadow-md)]"
+          >
+            <Sparkle weight="fill" className="text-2xl" />
+          </motion.div>
+          <motion.h1
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-2xl md:text-3xl font-extrabold text-[var(--color-text)] tracking-tight"
+          >
+            NeLK Multi-Model AI
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="text-[var(--color-text-muted)] mt-1 max-w-md text-xs sm:text-sm"
+          >
+            Asisten cerdas akademik multi-engine. Pilih model AI yang paling cocok dengan kebutuhan belajarmu.
+          </motion.p>
 
-      {messages.length > 0 && (
-        <div className="flex-1 overflow-y-auto mb-6 space-y-4 px-2">
-          {messages.map((msg, i) => (
-            <motion.div 
-              key={i} 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
-            >
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                msg.role === "user" ? "bg-nelk-primary text-white" : "bg-[#8B5CF6]/20 text-[#8B5CF6]"
-              }`}>
-                {msg.role === "user" ? <User weight="fill" /> : <Sparkle weight="fill" />}
-              </div>
-              <div className={`p-4 rounded-2xl max-w-[80%] ${
-                msg.role === "user" ? "bg-nelk-primary text-white rounded-tr-none" : "bg-nelk-surface-light dark:bg-nelk-surface-dark border border-black/10 dark:border-white/10 rounded-tl-none"
-              }`}>
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
-              </div>
-            </motion.div>
-          ))}
-          {isTyping && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#8B5CF6]/20 text-[#8B5CF6] flex items-center justify-center shrink-0">
-                <Sparkle weight="fill" />
-              </div>
-              <div className="p-4 rounded-2xl bg-nelk-surface-light dark:bg-nelk-surface-dark border border-black/10 dark:border-white/10 rounded-tl-none">
-                <div className="flex gap-1">
-                  <span className="w-2 h-2 rounded-full bg-[#8B5CF6] animate-bounce" />
-                  <span className="w-2 h-2 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: "0.2s" }} />
-                  <span className="w-2 h-2 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: "0.4s" }} />
+          {/* Model Selector Bar */}
+          <div className="mt-4 flex items-center justify-center gap-2 flex-wrap">
+            {modelTabs.map((m) => {
+              const Icon = m.icon;
+              const isSelected = selectedModel === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => setSelectedModel(m.id)}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                    isSelected
+                      ? "bg-[var(--color-primary)] text-white shadow-[var(--shadow-sm)] scale-[1.02]"
+                      : "bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                  }`}
+                >
+                  <Icon size={14} weight={isSelected ? "fill" : "regular"} />
+                  <span>{m.name}</span>
+                  <span
+                    className={`text-[9px] px-1.5 py-0.5 rounded-md ${
+                      isSelected ? "bg-white/20 text-white" : "bg-[var(--color-bg)] text-[var(--color-text-muted)]"
+                    }`}
+                  >
+                    {m.badge}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </header>
+
+        {/* Chat Messages */}
+        {messages.length > 0 && (
+          <div className="flex-1 overflow-y-auto mb-6 space-y-4 px-2 max-h-[55vh]">
+            {messages.map((msg, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
+                    msg.role === "user"
+                      ? "bg-[var(--color-primary)] text-white"
+                      : "bg-[var(--color-ai)]/20 text-[var(--color-ai)]"
+                  }`}
+                >
+                  {msg.role === "user" ? <User weight="fill" /> : <Sparkle weight="fill" />}
                 </div>
-              </div>
-            </motion.div>
-          )}
-        </div>
-      )}
+                <div
+                  className={`p-4 rounded-2xl max-w-[85%] text-xs sm:text-sm leading-relaxed shadow-xs ${
+                    msg.role === "user"
+                      ? "bg-[var(--color-primary)] text-white rounded-tr-none"
+                      : "bg-[var(--color-surface)] border border-[var(--color-border)] rounded-tl-none text-[var(--color-text)]"
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  {msg.modelName && (
+                    <span className="text-[9px] opacity-60 mt-2 block font-mono">Model: {msg.modelName}</span>
+                  )}
+                </div>
+              </motion.div>
+            ))}
+            {isTyping && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3">
+                <div className="w-8 h-8 rounded-full bg-[var(--color-ai)]/20 text-[var(--color-ai)] flex items-center justify-center shrink-0">
+                  <Sparkle weight="fill" />
+                </div>
+                <div className="p-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-tl-none">
+                  <div className="flex gap-1.5 items-center">
+                    <span className="w-2 h-2 rounded-full bg-[var(--color-ai)] animate-bounce" />
+                    <span
+                      className="w-2 h-2 rounded-full bg-[var(--color-ai)] animate-bounce"
+                      style={{ animationDelay: "0.2s" }}
+                    />
+                    <span
+                      className="w-2 h-2 rounded-full bg-[var(--color-ai)] animate-bounce"
+                      style={{ animationDelay: "0.4s" }}
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </div>
+        )}
+      </div>
 
-      <div className={`flex flex-col justify-end pb-12 ${messages.length > 0 ? "" : "flex-1"}`}>
+      {/* Footer Input & Suggestions */}
+      <div className="w-full pt-4">
         {messages.length === 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {suggestions.map((item, idx) => (
-            <motion.button
-              key={item.text}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 + idx * 0.1 }}
-              onClick={() => handleSend(item.text)}
-              className="p-4 rounded-2xl bg-nelk-surface-light dark:bg-nelk-surface-dark border border-black/5 dark:border-white/10 hover:border-[#8B5CF6]/30 hover:bg-[#8B5CF6]/5 transition-colors text-left group"
-            >
-              <div className="text-[#8B5CF6] mb-2">{item.icon}</div>
-              <span className="text-sm font-medium">{item.text}</span>
-            </motion.button>
-          ))}
-        </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+            {suggestions.map((item, idx) => (
+              <motion.button
+                key={item.text}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 + idx * 0.08 }}
+                onClick={() => handleSend(item.text)}
+                className="p-3.5 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-primary)]/40 hover:bg-[var(--color-surface-hover)] transition-all text-left group shadow-xs"
+              >
+                <div className="text-[var(--color-primary)] mb-1.5">{item.icon}</div>
+                <span className="text-xs font-semibold text-[var(--color-text)] leading-snug">{item.text}</span>
+              </motion.button>
+            ))}
+          </div>
         )}
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="relative"
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 via-[#8B5CF6]/20 to-pink-500/20 blur-xl opacity-50 rounded-full" />
-          <div className="relative bg-nelk-surface-light dark:bg-nelk-surface-dark rounded-full p-2 border border-black/10 dark:border-white/10 shadow-lg flex items-center pr-4">
-            <div className="pl-4 pr-2 text-nelk-text-light/40 dark:text-nelk-text-dark/40">
-              <Sparkle weight="fill" className="text-xl" />
+        <div className="relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-[var(--color-primary)]/20 via-[var(--color-ai)]/20 to-pink-500/20 blur-xl opacity-40 rounded-full" />
+          <div className="relative bg-[var(--color-surface)] rounded-2xl p-1.5 border border-[var(--color-border)] shadow-[var(--shadow-md)] flex items-center pr-2">
+            <div className="pl-3 pr-2 text-[var(--color-primary)]">
+              <Sparkle weight="fill" size={18} />
             </div>
-            <input 
-              type="text" 
-              placeholder="Ask anything about your tasks, schedule, or notes..."
+            <input
+              type="text"
+              placeholder={`Tanya tugas, jadwal, atau minta penjelasan konsep (${
+                selectedModel === "groq-gpt-oss-20b"
+                  ? "GPT-OSS 20B"
+                  : selectedModel === "gemini-2.5-flash"
+                  ? "Gemini 2.5 Flash"
+                  : "Mimo v2.5"
+              })...`}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend(query)}
-              className="flex-1 bg-transparent border-none outline-none py-3 text-base placeholder:text-nelk-text-light/40 dark:placeholder:text-nelk-text-dark/40"
+              className="flex-1 bg-transparent border-none outline-none py-2.5 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)]"
             />
-            <button 
+            <button
               onClick={() => handleSend(query)}
-              disabled={isTyping}
-              className={`px-6 py-2 rounded-full font-medium transition-colors ${
+              disabled={!query.trim() || isTyping}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs ${
                 query.trim() && !isTyping
-                  ? "bg-[#8B5CF6] text-white hover:bg-[#7c4dff]" 
-                  : "bg-black/5 dark:bg-white/5 text-nelk-text-light/40 dark:text-nelk-text-dark/40 cursor-not-allowed"
+                  ? "bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] active:scale-95"
+                  : "bg-[var(--color-bg)] text-[var(--color-text-muted)] cursor-not-allowed"
               }`}
             >
-              Send
+              Kirim
             </button>
           </div>
-        </motion.div>
+        </div>
       </div>
     </div>
   );
@@ -142,27 +230,30 @@ export default function AIPage() {
   async function handleSend(text: string) {
     if (!text.trim() || isTyping) return;
     if (text.trim().length < 2) {
-      setMessages(prev => [...prev, { role: "ai", content: "Silakan masukkan pertanyaan yang lebih spesifik (minimal 2 karakter)." }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", content: "Silakan masukkan pertanyaan yang lebih spesifik (minimal 2 karakter)." },
+      ]);
       return;
     }
 
-    setMessages(prev => [...prev, { role: "user", content: text }]);
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
     setQuery("");
     setIsTyping(true);
 
     try {
-      const response = await askAI(text);
-      setMessages(prev => [...prev, { role: "ai", content: response }]);
+      const response = await askAI(text, selectedModel);
+      const activeModelLabel =
+        selectedModel === "groq-gpt-oss-20b"
+          ? "Groq / GPT-OSS 20B"
+          : selectedModel === "gemini-2.5-flash"
+          ? "Google Gemini 2.5 Flash"
+          : "Mimo v2.5";
+
+      setMessages((prev) => [...prev, { role: "ai", content: response, modelName: activeModelLabel }]);
     } catch (e: any) {
-      console.error("AI Error:", e);
-      const errorMsg = e?.message || "Terjadi kesalahan tidak terduga. Coba lagi beberapa saat lagi.";
-      if (errorMsg.includes("Terlalu banyak") || errorMsg.includes("rate limit")) {
-        setMessages(prev => [...prev, { role: "ai", content: "Anda telah mencapai batas pemakaian AI harian. Coba lagi beberapa saat lagi." }]);
-      } else if (errorMsg.includes("Unauthorized")) {
-        setMessages(prev => [...prev, { role: "ai", content: "Sesi Anda telah berakhir. Silakan login ulang untuk menggunakan AI." }]);
-      } else {
-        setMessages(prev => [...prev, { role: "ai", content: `Terjadi kesalahan: ${errorMsg}` }]);
-      }
+      const errorMsg = e?.message || "Terjadi kendala koneksi AI.";
+      setMessages((prev) => [...prev, { role: "ai", content: `Pemberitahuan: ${errorMsg}` }]);
     } finally {
       setIsTyping(false);
     }

@@ -17,8 +17,9 @@ import {
 } from "./validations";
 import { storageService } from "./storage";
 import { enforceRateLimit } from "./rate-limit";
-import { env, hasGeminiConfigured } from "./env";
+import { env, hasGeminiConfigured, hasGroqConfigured, hasMimoConfigured } from "./env";
 import { logger } from "./logger";
+import { generateAIChatResponse, generateComplexTaskAI, extractScheduleWithAI, getAvailableAIModels, AIModelId } from "./ai";
 
 // Helper to require active user session
 async function requireAuth(): Promise<{ id: string; name?: string | null; email?: string | null }> {
@@ -391,8 +392,8 @@ export async function getPublicNotes() {
 export async function extractScheduleFromDocument(content: string) {
   const user = await requireAuth();
 
-  if (!hasGeminiConfigured()) {
-    return { success: false, message: "AI belum aktif. Tambahkan GEMINI_API_KEY." };
+  if (!hasGroqConfigured() && !hasGeminiConfigured()) {
+    return { success: false, message: "Layanan AI belum aktif. Tambahkan GROQ_API_KEY atau GEMINI_API_KEY." };
   }
 
   const sanitized = (content || "").slice(0, 8000);
@@ -401,29 +402,13 @@ export async function extractScheduleFromDocument(content: string) {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const prompt = `Analisis dokumen/jadwal berikut dan ekstrak semua kegiatan/kuliah/jadwal. 
-Untuk setiap item, berikan: title, date (YYYY-MM-DD), startTime (HH:mm), endTime (HH:mm), description.
-Hanya return JSON array, tanpa markdown atau penjelasan lain.
-Contoh output: [{"title":"Kuliah Basis Data","date":"2026-09-01","startTime":"08:00","endTime":"09:30","description":"Ruang 301"}]
-
-Dokumen:\n${sanitized}`;
-
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-
-    // Try to parse JSON from response
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return { success: true, events: parsed };
-    }
-
-    return { success: false, message: "Gagal mengekstrak jadwal dari dokumen. Pastikan dokumen berisi jadwal yang jelas." };
+    // Uses Groq Qwen 3.8 27B with fallback cascade
+    const events = await extractScheduleWithAI(sanitized);
+    return { success: true, events };
   } catch (e) {
     logger.error("AI Schedule extraction error", e);
-    return { success: false, message: "Terjadi kesalahan saat menganalisis dokumen." };
+    const msg = e instanceof Error ? e.message : "Terjadi kesalahan saat menganalisis dokumen.";
+    return { success: false, message: msg };
   }
 }
 
@@ -675,8 +660,8 @@ export async function summarizeContent(content: string) {
   const user = await requireAuth();
   enforceRateLimit(`ai:summarize:${user.id}`, 15, 60 * 1000, "Ringkasan AI");
 
-  if (!hasGeminiConfigured()) {
-    return "Fitur AI Summary belum aktif karena GEMINI_API_KEY belum dikonfigurasi di environment.";
+  if (!hasGroqConfigured() && !hasGeminiConfigured()) {
+    return "Fitur AI Summary belum aktif. Tambahkan GROQ_API_KEY atau GEMINI_API_KEY di environment.";
   }
 
   const sanitizedContent = (content || "").slice(0, 8000);
@@ -685,19 +670,18 @@ export async function summarizeContent(content: string) {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const prompt = `Buatkan ringkasan ringkas dan jelas dalam Bahasa Indonesia berpoin-poin penting dari materi berikut:\n\n${sanitizedContent}`;
-
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+    // Uses Groq GPT-OSS 120B for complex content tasks
+    return await generateComplexTaskAI(
+      "Kamu adalah asisten akademik NeLK yang ahli merangkum materi kuliah.",
+      `Buatkan ringkasan ringkas dan jelas dalam Bahasa Indonesia berpoin-poin penting dari materi berikut:\n\n${sanitizedContent}`
+    );
   } catch (e) {
     logger.error("AI Summarize error", e);
     if (e instanceof Error) {
-      if (e.message.includes("429") || e.message.includes(" quota")) {
-        return "Kamu telah mencapai batas penggunaan AI harian. Coba lagi besok.";
+      if (e.message.includes("429") || e.message.includes("quota")) {
+        return "Batas penggunaan AI tercapai. Coba lagi beberapa saat.";
       }
-      if (e.message.includes("timeout")) {
+      if (e.message.includes("timeout") || e.message.includes("fetch failed")) {
         return "Timeout koneksi AI. Coba lagi dalam 30 detik.";
       }
     }
@@ -705,35 +689,34 @@ export async function summarizeContent(content: string) {
   }
 }
 
-export async function askAI(query: string) {
+export async function getAIModelsList() {
+  return getAvailableAIModels();
+}
+
+export async function askAI(query: string, modelId?: AIModelId) {
   const user = await requireAuth();
-  enforceRateLimit(`ai:chat:${user.id}`, 20, 60 * 1000, "AI Chat");
+  enforceRateLimit(`ai:chat:${user.id}`, 25, 60 * 1000, "AI Chat");
 
-  if (!hasGeminiConfigured()) {
-    return "NeLK AI belum aktif. Tambahkan GEMINI_API_KEY pada environment variable untuk mengaktifkan asisten cerdas ini.";
-  }
-
-  const cleanQuery = (query || "").slice(0, 1000);
+  const cleanQuery = (query || "").slice(0, 2000);
   if (!cleanQuery.trim()) return "Pertanyaan tidak boleh kosong.";
 
-  try {
-    // 1. Fetch user context safely
-    const [tasks, notes] = await Promise.all([
-      prisma.task.findMany({
-        where: { userId: user.id, status: { not: "DONE" } },
-        select: { title: true, status: true, priority: true, dueDate: true },
-        take: 8,
-        orderBy: { createdAt: "desc" },
-      }),
-      prisma.note.findMany({
-        where: { userId: user.id },
-        select: { title: true, content: true },
-        take: 5,
-        orderBy: { updatedAt: "desc" },
-      }),
-    ]);
+  // 1. Fetch user context safely
+  const [tasks, notes] = await Promise.all([
+    prisma.task.findMany({
+      where: { userId: user.id, status: { not: "DONE" } },
+      select: { title: true, status: true, priority: true, dueDate: true },
+      take: 8,
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.note.findMany({
+      where: { userId: user.id },
+      select: { title: true, content: true },
+      take: 5,
+      orderBy: { updatedAt: "desc" },
+    }),
+  ]);
 
-    const contextText = `
+  const contextText = `
 Data Tugas Aktif:
 ${tasks.map((t) => `- ${t.title} [Status: ${t.status}, Prioritas: ${t.priority || "MEDIUM"}, Tenggat: ${t.dueDate ? t.dueDate.toLocaleDateString("id-ID") : "Tidak ada"}]`).join("\n")}
 
@@ -741,106 +724,23 @@ Data Catatan Terbaru:
 ${notes.map((n) => `Judul: ${n.title}\nRingkasan: ${n.content?.slice(0, 150)}...`).join("\n\n")}
 `;
 
-    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      tools: [
-        {
-          functionDeclarations: [
-            {
-              name: "create_task",
-              description: "Buat tugas (task) baru untuk pengguna.",
-              parameters: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  title: { type: SchemaType.STRING, description: "Judul tugas" },
-                  priority: { type: SchemaType.STRING, description: "Prioritas: LOW, MEDIUM, atau HIGH" },
-                },
-                required: ["title"],
-              },
-            },
-            {
-              name: "create_event",
-              description: "Buat jadwal/event di kalender pengguna.",
-              parameters: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  title: { type: SchemaType.STRING, description: "Judul kegiatan" },
-                  startTime: { type: SchemaType.STRING, description: "Waktu mulai (format HH:mm, contoh 09:00)" },
-                  endTime: { type: SchemaType.STRING, description: "Waktu selesai (format HH:mm, contoh 10:30)" },
-                },
-                required: ["title", "startTime", "endTime"],
-              },
-            },
-          ],
-        },
-      ],
+  // Route to multi-model AI system
+  try {
+    return await generateAIChatResponse({
+      prompt: cleanQuery,
+      context: contextText,
+      modelId: modelId || "groq-gpt-oss-20b",
     });
-
-    const prompt = `Kamu adalah asisten akademik pribadi NeLK. Bantu mahasiswa mengorganisasi tugas, waktu belajar, dan memahami materi kuliah secara ringkas dan ramah dalam Bahasa Indonesia.
-
-Konteks Akademik Pengguna:
-${contextText}
-
-Pertanyaan: ${cleanQuery}`;
-
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-
-    // Handle tool call with strict validation
-    const functionCalls = response.functionCalls();
-    if (functionCalls && functionCalls.length > 0) {
-      const call = functionCalls[0];
-
-      if (call.name === "create_task") {
-        const args = call.args as any;
-        const taskTitle = typeof args.title === "string" ? args.title.trim().slice(0, 200) : "";
-        if (taskTitle) {
-          await createTask({
-            title: taskTitle,
-            priority: args.priority || "MEDIUM",
-            status: "TODO",
-          });
-          return `Saya telah menambahkan tugas baru: "${taskTitle}" ke daftar tugasmu!`;
-        }
-      }
-
-      if (call.name === "create_event") {
-        const args = call.args as any;
-        const eventTitle = typeof args.title === "string" ? args.title.trim().slice(0, 200) : "";
-        if (eventTitle && args.startTime && args.endTime) {
-          try {
-            await createEvent({
-              title: eventTitle,
-              date: new Date(),
-              startTime: args.startTime,
-              endTime: args.endTime,
-            });
-            return `Saya telah menjadwalkan "${eventTitle}" hari ini pukul ${args.startTime} - ${args.endTime} di kalendermu!`;
-          } catch (err: any) {
-            return `Gagal membuat jadwal: ${err.message}`;
-          }
-        }
-      }
-    }
-
-    return response.text();
-  } catch (e) {
-    logger.error("AI Chat error", e);
+  } catch (e: any) {
+    logger.error("AI Multi-model error", e);
     if (e instanceof Error) {
-      if (e.message.includes("429") || e.message.includes("quota") || e.message.includes("RESOURCE_EXHAUSTED")) {
-        return "Kamu telah mencapai batas kuota penggunaan AI (Gemini Quota Exceeded). Coba lagi dalam beberapa saat atau besok.";
+      if (e.message.includes("429") || e.message.includes("quota")) {
+        return "Batas penggunaan AI tercapai. Silakan coba kembali dalam beberapa saat.";
       }
-      if (e.message.includes("timeout") || e.message.includes("ETIMEDOUT") || e.message.includes("fetch failed")) {
-        return "Timeout koneksi ke server AI. Periksa koneksi internet Anda dan coba lagi dalam 30 detik.";
+      if (e.message.includes("timeout") || e.message.includes("fetch failed")) {
+        return "Timeout koneksi ke server AI. Coba lagi dalam beberapa detik.";
       }
-      if (e.message.includes("API_KEY_INVALID") || e.message.includes("API key not valid")) {
-        return "Kunci API Gemini tidak valid atau belum diaktifkan di Google Cloud. Periksa konfigurasi GEMINI_API_KEY.";
-      }
-      if (e.message.includes("rate limit") || e.message.includes("Terlalu banyak")) {
-        return "Anda telah mencapai batas frekuensi pemakaian AI NeLK. Silakan tunggu 1 menit sebelum mengirim pesan berikutnya.";
-      }
-      return `Layanan AI mengalami kendala: ${e.message.slice(0, 150)}. Silakan coba lagi.`;
+      return `Layanan AI mengalami kendala: ${e.message.slice(0, 150)}`;
     }
     return "Terjadi kendala koneksi ke server AI. Silakan coba lagi dalam beberapa saat.";
   }
@@ -849,7 +749,7 @@ Pertanyaan: ${cleanQuery}`;
 export async function getProactiveInsight() {
   const user = await requireAuth();
 
-  if (!hasGeminiConfigured()) {
+  if (!hasGroqConfigured() && !hasGeminiConfigured()) {
     return "Tetap semangat belajar hari ini! Selesaikan tugas prioritasmu tepat waktu.";
   }
 
@@ -871,12 +771,10 @@ export async function getProactiveInsight() {
       )
       .join("\n");
 
-    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const prompt = `Berikan 1 kalimat motivasi / insight singkat dan ramah (maksimal 140 karakter) dalam Bahasa Indonesia untuk menyemangati mahasiswa menyelesaikan tugas-tugas ini:\n${contextText}`;
-
-    const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    return await generateComplexTaskAI(
+      "Kamu adalah motivator akademik NeLK yang ramah dan singkat.",
+      `Berikan 1 kalimat motivasi / insight singkat dan ramah (maksimal 140 karakter) dalam Bahasa Indonesia untuk menyemangati mahasiswa menyelesaikan tugas-tugas ini:\n${contextText}`
+    );
   } catch (e) {
     logger.error("AI Insight error", e);
     return "Fokus selesaikan tugas terdekat untuk hasil maksimal hari ini!";
@@ -905,7 +803,7 @@ export async function getRandomNoteSummary() {
 
   if (!randomNote) return null;
 
-  if (!hasGeminiConfigured() || !randomNote.content) {
+  if ((!hasGroqConfigured() && !hasGeminiConfigured()) || !randomNote.content) {
     return {
       title: randomNote.title,
       summary: randomNote.content
@@ -915,14 +813,13 @@ export async function getRandomNoteSummary() {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const prompt = `Buat 2-3 poin pengingat kunci ringkas dalam Bahasa Indonesia dari materi catatan ini:\nJudul: ${randomNote.title}\nKonten: ${randomNote.content.slice(0, 3000)}`;
-
-    const result = await model.generateContent(prompt);
+    const summary = await generateComplexTaskAI(
+      "Kamu adalah asisten akademik NeLK yang merangkum catatan kuliah.",
+      `Buat 2-3 poin pengingat kunci ringkas dalam Bahasa Indonesia dari materi catatan ini:\nJudul: ${randomNote.title}\nKonten: ${randomNote.content.slice(0, 3000)}`
+    );
     return {
       title: randomNote.title,
-      summary: result.response.text(),
+      summary,
     };
   } catch (e) {
     return {
@@ -1370,8 +1267,8 @@ export async function generateQuizFromContent(content: string) {
   const user = await requireAuth();
   enforceRateLimit(`ai:quiz:${user.id}`, 10, 60 * 1000, "AI Quiz Generation");
 
-  if (!hasGeminiConfigured()) {
-    return { success: false, message: "AI belum aktif. Tambahkan GEMINI_API_KEY." };
+  if (!hasGroqConfigured() && !hasGeminiConfigured()) {
+    return { success: false, message: "Layanan AI belum aktif. Tambahkan GROQ_API_KEY atau GEMINI_API_KEY." };
   }
 
   const sanitized = (content || "").slice(0, 6000);
@@ -1380,16 +1277,15 @@ export async function generateQuizFromContent(content: string) {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const prompt = `Buatkan 5 soal kuis pilihan ganda dari materi berikut. Setiap soal harus memiliki 4 opsi (A, B, C, D) dan jawaban yang benar.
+    // Uses Groq GPT-OSS 120B for complex quiz generation
+    const text = await generateComplexTaskAI(
+      "Kamu adalah generator soal kuis akademik NeLK. Kamu harus menghasilkan soal pilihan ganda yang akurat.",
+      `Buatkan 5 soal kuis pilihan ganda dari materi berikut. Setiap soal harus memiliki 4 opsi (A, B, C, D) dan jawaban yang benar.
 Return dalam format JSON array: [{"question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"correctAnswer":"A"}]
 Tanpa markdown atau penjelasan lain.
 
-Materi:\n${sanitized}`;
-
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+Materi:\n${sanitized}`
+    );
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       return { success: true, questions: JSON.parse(jsonMatch[0]) };

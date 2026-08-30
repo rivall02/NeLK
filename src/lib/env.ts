@@ -13,8 +13,11 @@ export const env = {
   // Auth
   AUTH_SECRET: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "development-secret-key-replace-in-production",
 
-  // AI
+  // AI Providers
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || "",
+  GROQ_API_KEY: process.env.GROQ_API_KEY || "",
+  MIMO_API_KEY: process.env.MIMO_API_KEY || "",
+  MIMO_BASE_URL: process.env.MIMO_BASE_URL || "https://api.mimoai.top/v1",
 
   // Google OAuth & Classroom
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || "",
@@ -39,6 +42,20 @@ export const env = {
  */
 export const hasGeminiConfigured = (): boolean => {
   return Boolean(env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim().length > 5);
+};
+
+/**
+ * Check if Groq AI is configured
+ */
+export const hasGroqConfigured = (): boolean => {
+  return Boolean(env.GROQ_API_KEY && env.GROQ_API_KEY.trim().length > 5);
+};
+
+/**
+ * Check if Mimo AI is configured
+ */
+export const hasMimoConfigured = (): boolean => {
+  return Boolean(env.MIMO_API_KEY && env.MIMO_API_KEY.trim().length > 5);
 };
 
 /** 
