@@ -375,8 +375,9 @@ export async function extractScheduleFromDocument(content: string) {
     return { success: false, message: "Layanan AI belum aktif. Tambahkan GROQ_API_KEY atau GEMINI_API_KEY." };
   }
 
-  const sanitized = (content || "").slice(0, 8000);
-  if (!sanitized.trim()) {
+  const isImage = (content || "").startsWith("data:image/");
+  const sanitized = isImage ? content : (content || "").slice(0, 8000);
+  if (!sanitized || !sanitized.trim()) {
     return { success: false, message: "Dokumen kosong tidak dapat dianalisis." };
   }
 
@@ -882,6 +883,8 @@ export async function getUserProfile() {
 // INTEGRATION AUDIT: GOOGLE CLASSROOM & STRAVA (P1 #8)
 // ----------------------------------------------------------------------
 
+import { getValidGoogleToken } from "@/lib/classroom";
+
 export async function syncGoogleClassroom() {
   const user = await requireAuth();
 
@@ -890,7 +893,7 @@ export async function syncGoogleClassroom() {
     where: { userId: user.id, provider: "google" },
   });
 
-  if (!googleAccount || !googleAccount.access_token) {
+  if (!googleAccount) {
     return {
       success: false,
       connected: false,
@@ -899,10 +902,21 @@ export async function syncGoogleClassroom() {
     };
   }
 
+  const validAccessToken = await getValidGoogleToken(googleAccount);
+
+  if (!validAccessToken) {
+    return {
+      success: false,
+      connected: false,
+      count: 0,
+      message: "Sesi Google Classroom kedaluwarsa. Silakan hubungkan ulang akun Google Anda.",
+    };
+  }
+
   try {
     // Real Classroom API fetch using token
     const res = await fetch("https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE", {
-      headers: { Authorization: `Bearer ${googleAccount.access_token}` },
+      headers: { Authorization: `Bearer ${validAccessToken}` },
     });
 
     if (!res.ok) {
@@ -921,7 +935,7 @@ export async function syncGoogleClassroom() {
     for (const course of courses.slice(0, 5)) {
       const courseWorkRes = await fetch(
         `https://classroom.googleapis.com/v1/courses/${course.id}/courseWork`,
-        { headers: { Authorization: `Bearer ${googleAccount.access_token}` } }
+        { headers: { Authorization: `Bearer ${validAccessToken}` } }
       );
 
       if (courseWorkRes.ok) {
@@ -931,7 +945,7 @@ export async function syncGoogleClassroom() {
           try {
             const subRes = await fetch(
               `https://classroom.googleapis.com/v1/courses/${course.id}/courseWork/${item.id}/studentSubmissions`,
-              { headers: { Authorization: `Bearer ${googleAccount.access_token}` } }
+              { headers: { Authorization: `Bearer ${validAccessToken}` } }
             );
             if (subRes.ok) {
               const subData = await subRes.json();
@@ -1013,13 +1027,18 @@ export async function syncClassroomMaterials() {
     where: { userId: user.id, provider: "google" },
   });
 
-  if (!googleAccount || !googleAccount.access_token) {
+  if (!googleAccount) {
     return { success: false, count: 0, message: "Akun Google belum terhubung." };
+  }
+
+  const validAccessToken = await getValidGoogleToken(googleAccount);
+  if (!validAccessToken) {
+    return { success: false, count: 0, message: "Sesi Google Classroom kedaluwarsa. Silakan hubungkan ulang." };
   }
 
   try {
     const res = await fetch("https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE", {
-      headers: { Authorization: `Bearer ${googleAccount.access_token}` },
+      headers: { Authorization: `Bearer ${validAccessToken}` },
     });
 
     if (!res.ok) return { success: false, count: 0, message: "Token Google Classroom kedaluwarsa." };
@@ -1029,13 +1048,13 @@ export async function syncClassroomMaterials() {
     let syncedCount = 0;
 
     for (const course of courses.slice(0, 5)) {
-      const materialsRes = await fetch(
+      const matRes = await fetch(
         `https://classroom.googleapis.com/v1/courses/${course.id}/courseWorkMaterials`,
-        { headers: { Authorization: `Bearer ${googleAccount.access_token}` } }
+        { headers: { Authorization: `Bearer ${validAccessToken}` } }
       );
 
-      if (materialsRes.ok) {
-        const matData = await materialsRes.json();
+      if (matRes.ok) {
+        const matData = await matRes.json();
         for (const materialItem of (matData.courseWorkMaterial || []).slice(0, 5)) {
           if (!materialItem.materials || materialItem.materials.length === 0) continue;
 
