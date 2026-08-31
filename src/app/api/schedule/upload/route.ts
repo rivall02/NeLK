@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { env, hasGeminiConfigured } from "@/lib/env";
 import { storageService } from "@/lib/storage";
 import { extractScheduleWithAI } from "@/lib/ai";
+import { normalizeExtractedSchedule, type ExtractedSchedule } from "@/lib/scheduling/normalization";
+import { validateExtractedSchedule } from "@/lib/scheduling/validator";
 import { logger } from "@/lib/logger";
 import { auth } from "@/auth";
 
@@ -92,12 +94,35 @@ export async function POST(request: Request) {
 
     // Extract schedule with AI
     let extractedEvents: any[] = [];
+    let rawEvents: any[] = [];
     try {
-      extractedEvents = await extractScheduleWithAI(documentText);
+      rawEvents = await extractScheduleWithAI(documentText);
+      
+      // Normalize the extracted events
+      const normalized: ExtractedSchedule = normalizeExtractedSchedule(rawEvents);
+      extractedEvents = normalized.courses.map(c => ({
+        title: c.name,
+        date: c.date || "",
+        startTime: c.startTime,
+        endTime: c.endTime,
+        day: c.day,
+        description: "",
+      }));
+      
+      // Validate events
+      const validation = validateExtractedSchedule(normalized.courses, normalized.academicEvents);
+      if (validation.errors.length > 0) {
+        logger.warn("Schedule validation warnings", { 
+          file: file.name, 
+          errors: validation.errors 
+        });
+      }
+      
       logger.info("Schedule extracted from file", {
         userId: session.user.id,
         file: file.name,
         eventCount: extractedEvents.length,
+        validationErrors: validation.errors.length,
       });
     } catch (aiError) {
       logger.error("AI extraction failed for schedule", aiError);
@@ -107,6 +132,7 @@ export async function POST(request: Request) {
         storedKey: stored.storageKey,
         extractionError: true,
         extractedEvents: [],
+        needsReview: true,
       });
     }
 
@@ -115,6 +141,7 @@ export async function POST(request: Request) {
       storedKey: stored.storageKey,
       extractedEvents,
       eventCount: extractedEvents.length,
+      needsReview: false,
     });
 
   } catch (error) {

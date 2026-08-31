@@ -24,6 +24,7 @@ import {
   autoScheduleStudy,
   extractScheduleFromDocument,
 } from "@/lib/actions";
+import { logger } from "@/lib/logger";
 
 interface ScheduleEvent {
   id: string;
@@ -247,7 +248,7 @@ export default function ScheduleClient({
     }
   }
 
-  async function handleAutoSchedule() {
+  const handleAutoSchedule = async () => {
     setIsAutoScheduling(true);
     try {
       const result = await autoScheduleStudy(selectedDateStr);
@@ -274,7 +275,74 @@ export default function ScheduleClient({
     } finally {
       setIsAutoScheduling(false);
     }
-  }
+  };
+
+  // Handle file upload for PDF/foto import
+  const handleFileSelect = async (file: File) => {
+    if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
+      toast.error(
+        "Format file tidak didukung. Gunakan PDF atau gambar (PNG/JPG)."
+      );
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File terlalu besar. Maksimal 10MB.");
+      return;
+    }
+
+    setIsExtracting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/schedule/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await res.json();
+
+      if (result.success && result.events && result.events.length > 0) {
+        setExtractedEvents(result.events);
+        setShowImportModal(true);
+      } else {
+        toast.error(
+          result.message ||
+            "Gagal menganalisis dokumen. Pastikan teks terbaca jelas."
+        );
+      }
+    } catch (err: any) {
+      logger.error("File upload error", err);
+      toast.error(err.message || "Gagal mengupload file. Coba lagi.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  // Accept extracted events and add to schedule
+  const acceptExtractedEvents = async () => {
+    try {
+      for (const ev of extractedEvents) {
+        await createEvent({
+          title: ev.title,
+          date: new Date(`${ev.date}T00:00:00`),
+          startTime: ev.startTime || "09:00",
+          endTime: ev.endTime || "10:30",
+          description: ev.description,
+        });
+      }
+      toast.success(
+        `Berhasil menambahkan ${extractedEvents.length} jadwal ke kalender!`
+      );
+      setShowImportModal(false);
+      setExtractedEvents([]);
+    } catch (err: any) {
+      toast.error(
+        err.message || "Gagal menyimpan jadwal. Periksa konflik waktu."
+      );
+    }
+  };
 
   return (
     <div className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 pt-6 min-h-screen">
@@ -300,9 +368,21 @@ export default function ScheduleClient({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Hidden file input untuk upload */}
+          <input
+            type="file"
+            accept=".pdf,image/png,image/jpeg,image/jpg,image/webp"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFileSelect(file);
+              e.target.value = "";
+            }}
+            className="hidden"
+            id="file-upload-input"
+          />
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={() => setShowImportModal(true)}
+            onClick={() => document.getElementById("file-upload-input")?.click()}
             className="flex items-center gap-2 px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] rounded-xl text-xs sm:text-sm font-semibold transition-colors active:scale-95 shadow-[var(--shadow-sm)]"
           >
             <FilePdf weight="duotone" className="text-red-500 text-base" />
