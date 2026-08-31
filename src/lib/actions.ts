@@ -1622,3 +1622,85 @@ export async function deleteCourse(id: string) {
   revalidatePath("/app/courses");
 }
 
+
+// ----------------------------------------------------------------------
+// BATCH EVENT CREATION (Schedule Auto-Add from PDF/Image)
+// ----------------------------------------------------------------------
+
+export interface ExtractedEvent {
+  title: string;
+  date: string;
+  startTime?: string;
+  endTime?: string;
+  description?: string;
+}
+
+export interface BatchCreateEventsResult {
+  success: boolean;
+  created: number;
+  skipped: number;
+  message: string;
+  conflicts?: string[];
+}
+
+export async function batchCreateEvents(
+  eventsData: ExtractedEvent[],
+  autoApprove: boolean = false
+): Promise<BatchCreateEventsResult> {
+  const user = await requireAuth();
+  
+  if (!eventsData || eventsData.length === 0) {
+    return { success: false, created: 0, skipped: 0, message: "Tidak ada data jadwal yang valid." };
+  }
+
+  enforceRateLimit(`schedule:auto:${user.id}`, 30, 60 * 1000, "Auto-create Events");
+
+  let created = 0;
+  let skipped = 0;
+  const conflicts: string[] = [];
+
+  for (const eventData of eventsData) {
+    try {
+      // Validate required fields
+      if (!eventData.title || !eventData.date) {
+        skipped++;
+        continue;
+      }
+
+      // Parse date
+      const eventDate = new Date(eventData.date);
+      if (isNaN(eventDate.getTime())) {
+        skipped++;
+        continue;
+      }
+
+      // Create event with validation
+      await createEvent({
+        title: eventData.title,
+        date: eventDate,
+        startTime: eventData.startTime,
+        endTime: eventData.endTime,
+        description: eventData.description,
+      });
+      
+      created++;
+    } catch (e: any) {
+      // If it's a conflict error, count it
+      if (e.message?.includes(" sudah ditempati ")) {
+        conflicts.push(`${eventData.title}: ${e.message}`);
+      }
+      skipped++;
+    }
+  }
+
+  revalidatePath("/app/schedule");
+  revalidatePath("/app");
+
+  return {
+    success: true,
+    created,
+    skipped,
+    message: `Berhasil menambahkan ${created} jadwal dari ${eventsData.length} data yang ditemukan.`,
+    conflicts: conflicts.length > 0 ? conflicts : undefined,
+  };
+}

@@ -189,6 +189,7 @@ Dokumen:\n${documentText.slice(0, 10000)}`;
         isImage ? "llama-3.2-90b-vision-preview" : "qwen/qwen3.8-27b" // Use vision model if image, else qwen
       );
     } catch (e: any) {
+      console.log("GROQ ERROR:", e);
       logger.warn("Groq Qwen 3.8 27B error, fallback to Gemini:", e.message);
     }
   }
@@ -200,6 +201,7 @@ Dokumen:\n${documentText.slice(0, 10000)}`;
         prompt
       );
     } catch (e: any) {
+      console.log("GEMINI ERROR:", e);
       logger.warn("Gemini schedule extraction error:", e.message);
     }
   }
@@ -301,21 +303,31 @@ async function callMimoChat(systemPrompt: string, userMessage: string, modelName
   return data.choices?.[0]?.message?.content || "Tidak ada respons.";
 }
 
-async function callGeminiChat(systemPrompt: string, userMessage: string): Promise<string> {
+async function callGeminiChat(
+  systemPrompt: string,
+  userMessage: string,
+  options?: { responseMimeType?: string; responseSchema?: any }
+): Promise<string> {
   const keys = getKeys();
   if (!keys.gemini) throw new Error("Kunci API Gemini belum dikonfigurasi.");
 
   const genAI = new GoogleGenerativeAI(keys.gemini);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({
+    model: "gemini-1.5-flash",
+    generationConfig: options ? {
+      responseMimeType: options.responseMimeType,
+      responseSchema: options.responseSchema,
+    } : undefined,
+  });
   
   if (userMessage.startsWith("data:image/")) {
-    const match = userMessage.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+    const match = userMessage.match(/^data:([^;]+);base64,(.+)$/);
     if (match) {
       const mimeType = match[1];
       const data = match[2];
       const result = await model.generateContent([
         systemPrompt,
-        "Tolong ekstrak informasi dari gambar jadwal ini.",
+        "Tolong ekstrak informasi dari gambar jadwal ini sesuai dengan format JSON yang diminta.",
         { inlineData: { data, mimeType } }
       ]);
       return result.response.text();
