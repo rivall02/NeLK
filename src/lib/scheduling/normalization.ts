@@ -147,7 +147,18 @@ export function normalizeCourseName(name: string): string {
  */
 export function normalizeCourse(course: Record<string, any>): NormalizedCourse | null {
   const name = normalizeCourseName(course.name || course.title || course.course || "");
-  const dayStr = normalizeDay(course.day || course.hari || "");
+  let dayStr = normalizeDay(course.day || course.hari || "");
+  const dateStr = normalizeDate(course.date || course.tanggal || "");
+  
+  if (!dayStr && dateStr) {
+    // Derive day from date
+    const dateObj = new Date(dateStr);
+    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    if (!isNaN(dateObj.getTime())) {
+      dayStr = days[dateObj.getDay()];
+    }
+  }
+
   if (!dayStr) {
     logger.warn("Invalid day in course data", { original: course });
     return null;
@@ -161,7 +172,7 @@ export function normalizeCourse(course: Record<string, any>): NormalizedCourse |
     return null;
   }
   
-  return { name, day, startTime, endTime };
+  return { name, day, startTime, endTime, date: dateStr || undefined };
 }
 
 /**
@@ -194,13 +205,37 @@ export function normalizeExtractedSchedule(raw: any): ExtractedSchedule {
   // Handle different AI output formats
   const data = typeof raw === "string" ? JSON.parse(raw) : raw;
   
+  let coursesList = [];
+  let eventsList = [];
+
+  if (Array.isArray(data)) {
+    // If it's an array, we assume it contains mixed items (mostly courses)
+    // We separate them based on whether they have a day/startTime or just a date
+    data.forEach(item => {
+      // It might have "title" mapped to "name" in normalizeCourse
+      if (item.startTime && item.endTime && item.day) {
+        coursesList.push(item);
+      } else if (item.startTime && item.endTime && item.date) {
+         // Try to derive day from date if missing day? Or just keep it as course if it has time
+         coursesList.push(item);
+      } else if (item.date) {
+        eventsList.push(item);
+      } else {
+        coursesList.push(item); // Fallback
+      }
+    });
+  } else {
+    coursesList = data.courses || data.mataKuliah || data.kuliah || [];
+    eventsList = data.academicEvents || data.academic_calendar || data.jadwalAkademik || [];
+  }
+
   // Normalize courses
-  const courses = (data.courses || data.mataKuliah || data.kuliah || [])
+  const courses = coursesList
     .map((c: any) => normalizeCourse(c))
     .filter((c: NormalizedCourse | null): c is NormalizedCourse => c !== null);
   
   // Normalize academic events
-  const academicEvents = (data.academicEvents || data.academic_calendar || data.jadwalAkademik || [])
+  const academicEvents = eventsList
     .map((e: any) => normalizeAcademicEvent(e))
     .filter((e: NormalizedAcademicEvent | null): e is NormalizedAcademicEvent => e !== null);
   
@@ -210,7 +245,7 @@ export function normalizeExtractedSchedule(raw: any): ExtractedSchedule {
   });
   
   return {
-    documentType: data.documentType || (academicEvents.length > 0 ? "academic_calendar" : "class_schedule"),
+    documentType: data.documentType || (academicEvents.length > courses.length ? "academic_calendar" : "class_schedule"),
     courses,
     academicEvents,
   };

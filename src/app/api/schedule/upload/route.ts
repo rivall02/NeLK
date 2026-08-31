@@ -58,32 +58,8 @@ export async function POST(request: Request) {
     // Upload to storage
     const stored = await storageService.saveFile(buffer, file.name, file.type);
 
-    // Extract text content based on file type
-    let documentText = "";
-    
-    if (file.type === "application/pdf") {
-      try {
-        const pdfParse = (await import("pdf-parse")) as any;
-        const data = await pdfParse.default(buffer);
-        documentText = data.text || "";
-      } catch (e) {
-        logger.warn("PDF parsing failed for schedule extraction", { filename: file.name });
-      }
-    } else if (file.type.startsWith("text/")) {
-      documentText = buffer.toString("utf-8");
-    } else if (file.type.startsWith("image/")) {
-      // Convert image to base64 data URL for AI vision
-      const base64 = buffer.toString("base64");
-      documentText = `data:${file.type};base64,${base64}`;
-    }
-
-    if (!documentText || documentText.length < 50) {
-      return NextResponse.json({ error: "Tidak dapat mengekstrak teks dari file." }, { status: 400 });
-    }
-
     // Check if AI is configured
     if (!hasGeminiConfigured()) {
-      // Fallback: just store the file and return warning
       return NextResponse.json({
         message: "File berhasil diupload, tetapi AI belum dikonfigurasi untuk mengekstrak jadwal.",
         storedKey: stored.storageKey,
@@ -92,57 +68,74 @@ export async function POST(request: Request) {
       });
     }
 
+    // Convert file to base64 for Gemini Vision (works for PDF, images, etc.)
+    const base64Content = buffer.toString("base64");
+
+    // For text files, we can also pass text directly as fallback
+    let textFallback = "";
+    if (file.type.startsWith("text/")) {
+      textFallback = buffer.toString("utf-8");
+    }
+
     // Extract schedule with AI
     let extractedEvents: any[] = [];
     let rawEvents: any[] = [];
     try {
-      rawEvents = await extractScheduleWithAI(documentText);
+      logger.info("Starting AI extraction...", { mimeType: file.type, base64Length: base64Content.length });
       
-      // Normalize the extracted events
-      const normalized: ExtractedSchedule = normalizeExtractedSchedule(rawEvents);
-      extractedEvents = normalized.courses.map(c => ({
-        title: c.name,
-        date: c.date || "",
-        startTime: c.startTime,
-        endTime: c.endTime,
-        day: c.day,
-        description: "",
-      }));
+      rawEvents = await extractScheduleWithAI({
+        base64: base64Content,
+        mimeType: file.type,
+        textFallback,
+      });
       
-      // Validate events
-      const validation = validateExtractedSchedule(normalized.courses, normalized.academicEvents);
-      if (validation.errors.length > 0) {
-        logger.warn("Schedule validation warnings", { 
-          file: file.name, 
-          errors: validation.errors 
-        });
-      }
-      
+      logger.info("AI extraction returned", { rawCount: rawEvents.length, sample: rawEvents[0] });
+
+      // Map AI output directly to extractedEvents
+      // AI returns: { title, date, startTime, endTime, day?, description? }
+      extractedEvents = rawEvents.map((item: any) => {
+        let day = item.day || "";
+        // Derive day from date if not provided
+        if (!day && item.date) {
+          const dateObj = new Date(item.date);
+          if (!isNaN(dateObj.getTime())) {
+            const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            day = days[dateObj.getDay()];
+          }
+        }
+        return {
+          title: item.title || item.name || "",
+          date: item.date || "",
+          startTime: item.startTime || "00:00",
+          endTime: item.endTime || "23:59",
+          day,
+          description: item.description || "",
+        };
+      }).filter((e: any) => e.title && e.date);
       logger.info("Schedule extracted from file", {
         userId: session.user.id,
         file: file.name,
         eventCount: extractedEvents.length,
-        validationErrors: validation.errors.length,
+      });
+
+      return NextResponse.json({
+        message: extractedEvents.length > 0 ? "File berhasil diproses" : "Tidak ada jadwal yang dapat diekstrak.",
+        storedKey: stored.storageKey,
+        extractedEvents,
+        eventCount: extractedEvents.length,
+        needsReview: false,
       });
     } catch (aiError) {
       logger.error("AI extraction failed for schedule", aiError);
       // Still return the stored file but with extraction error
       return NextResponse.json({
-        message: "File berhasil diupload, tetapi gagal mengekstrak jadwal.",
+        message: "File berhasil diupload, tetapi gagal mengekstrak jadwal. Error: " + (aiError instanceof Error ? aiError.message : String(aiError)),
         storedKey: stored.storageKey,
         extractionError: true,
         extractedEvents: [],
         needsReview: true,
       });
     }
-
-    return NextResponse.json({
-      message: "File berhasil diproses",
-      storedKey: stored.storageKey,
-      extractedEvents,
-      eventCount: extractedEvents.length,
-      needsReview: false,
-    });
 
   } catch (error) {
     logger.error("Schedule upload error", error);

@@ -303,8 +303,8 @@ export default function ScheduleClient({
 
       const result = await res.json();
 
-      if (result.success && result.events && result.events.length > 0) {
-        setExtractedEvents(result.events);
+      if (!result.error && result.extractedEvents && result.extractedEvents.length > 0) {
+        setExtractedEvents(result.extractedEvents);
         setShowImportModal(true);
       } else {
         toast.error(
@@ -757,39 +757,39 @@ export default function ScheduleClient({
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
+                    if (file.size > 10 * 1024 * 1024) {
+                      toast.error("File terlalu besar. Maksimal 10MB.");
+                      return;
+                    }
                     setIsExtracting(true);
                     try {
-                      let content = "";
-                      if (file.type === "application/pdf") {
-                        const bytes = await file.arrayBuffer();
-                        const buffer = Buffer.from(bytes);
-                        const pdfParse = (await import("pdf-parse") as any).default || (await import("pdf-parse"));
-                        const data = await pdfParse(buffer);
-                        content = data.text || "";
-                      } else if (file.type.startsWith("text/")) {
-                        content = await file.text();
-                      } else if (file.type.startsWith("image/")) {
-                        const reader = new FileReader();
-                        content = await new Promise<string>((resolve, reject) => {
-                          reader.onload = () => resolve(reader.result as string);
-                          reader.onerror = reject;
-                          reader.readAsDataURL(file);
-                        });
-                      } else {
-                        toast.error("Format file tidak didukung. Gunakan PDF, Teks, atau Gambar.");
-                        setIsExtracting(false);
+                      const formData = new FormData();
+                      formData.append("file", file);
+
+                      const res = await fetch("/api/schedule/upload", {
+                        method: "POST",
+                        body: formData,
+                      });
+
+                      const result = await res.json();
+
+                      if (!res.ok) {
+                        toast.error(result.error || "Gagal memproses file.");
                         return;
                       }
 
-                      const result = await extractScheduleFromDocument(content);
-                      if (result.success && result.events) {
-                        setExtractedEvents(result.events);
-                        toast.success(`Berhasil mengekstrak ${result.events.length} jadwal dari dokumen!`);
+                      if (result.extractedEvents && result.extractedEvents.length > 0) {
+                        setExtractedEvents(result.extractedEvents);
+                        if (result.needsReview) {
+                          toast.warning(result.message || "Jadwal diekstrak, tetapi ada yang perlu direview.");
+                        } else {
+                          toast.success(`Berhasil mengekstrak ${result.extractedEvents.length} jadwal dari dokumen!`);
+                        }
                       } else {
-                        toast.error(result.message || "Gagal mengekstrak jadwal.");
+                        toast.error(result.message || "Gagal menganalisis dokumen. Pastikan teks terbaca jelas.");
                       }
                     } catch (err: any) {
-                      toast.error(err.message || "Gagal membaca file.");
+                      toast.error(err.message || "Gagal mengupload file. Coba lagi.");
                     } finally {
                       setIsExtracting(false);
                       e.target.value = "";

@@ -236,7 +236,7 @@ export function needsReview(
       const newStart = startH * 60 + startM;
       const newEnd = endH * 60 + endM;
       const existStart = eStartH * 60 + eStartM;
-      const existEnd = eEndH * eEndM;
+      const existEnd = eEndH * 60 + eEndM;
       
       if (newStart < existEnd && existStart < newEnd) {
         reasons.push(`Conflict with "${existing.title}" (${existing.startTime}-${existing.endTime})`);

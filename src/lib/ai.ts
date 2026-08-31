@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { env, hasGeminiConfigured, hasGroqConfigured, hasMimoConfigured } from "./env";
 import { logger } from "./logger";
 
@@ -156,74 +156,128 @@ export async function generateComplexTaskAI(systemPrompt: string, userContent: s
 }
 
 /**
- * 3. Image/Document Schedule Extraction Task
- * Model: Groq Image/Document Task → qwen/qwen3.8-27b
+ * 3. Multimodal Schedule Extraction (Gemini Vision-to-JSON)
+ * Sends raw file bytes (PDF/Image) directly to Gemini 2.5 Flash as inlineData.
+ * No intermediate text parsing needed — Gemini reads the visual structure natively.
  */
-export async function extractScheduleWithAI(documentText: string): Promise<any[]> {
+export interface ScheduleExtractionInput {
+  base64: string;       // Raw file content as base64
+  mimeType: string;     // e.g. "application/pdf", "image/jpeg"
+  textFallback?: string; // For text files, plain text content
+}
+
+const EXTRACTION_SYSTEM_PROMPT = `Anda adalah sistem ekstraksi data akademik yang presisi. Tugas Anda adalah menganalisis dokumen kalender akademik atau jadwal perkuliahan yang dilampirkan, lalu mengekstrak semua kegiatan ke dalam format array JSON.
+
+Terapkan aturan ekstraksi berikut secara ketat:
+1. Normalisasi Tanggal: Format wajib "YYYY-MM-DD". Jika tahun tidak ditulis pada tanggal tertentu, ambil tahun dari judul dokumen atau konteks semester.
+2. Pemisahan Rentang Hari: Jika sebuah kegiatan memiliki rentang (contoh: "16 - 18 Januari"), Anda wajib membuat entri objek JSON terpisah untuk setiap tanggal (16 Januari, 17 Januari, dan 18 Januari).
+3. Normalisasi Waktu: Gunakan format 24-jam "HH:MM". Jika kegiatan bersifat seharian atau waktu tidak tertera, tetapkan "startTime": "00:00" dan "endTime": "23:59".
+4. Penggabungan Deskripsi: Jika terdapat keterangan tambahan seperti ruang kelas, jenis kegiatan (misal: "Drop Mata Kuliah"), atau instruksi khusus, masukkan ke dalam properti "description".
+5. Jangan mengada-ada data. Jika informasi tidak ada di dokumen, jangan membuat asumsi.
+6. Baca struktur visual dokumen (tabel, baris, kolom, hierarki teks) secara menyeluruh.`;
+
+export async function extractScheduleWithAI(input: ScheduleExtractionInput | string): Promise<any[]> {
   const keys = getKeys();
-  const isImage = documentText.startsWith("data:image/");
-  const prompt = isImage ? documentText : `Analisis dokumen jadwal perkuliahan berikut dan ekstrak semua mata kuliah/kegiatan.
-Untuk setiap item, berikan JSON array objek dengan format:
-[
-  {
-    "title": "Nama Mata Kuliah / Kegiatan",
-    "date": "YYYY-MM-DD",
-    "startTime": "HH:mm",
-    "endTime": "HH:mm",
-    "description": "Ruang / Dosen / Keterangan"
+
+  // Legacy string support for backward compatibility
+  if (typeof input === "string") {
+    input = {
+      base64: "",
+      mimeType: "",
+      textFallback: input,
+    };
   }
-]
-Hanya return JSON murni tanpa markdown atau teks pengantar.
 
-Dokumen:\n${documentText.slice(0, 10000)}`;
+  const { base64, mimeType, textFallback } = input;
 
-  const systemContext = "Kamu adalah parser jadwal akademik cerdas yang mengekstrak informasi ke format JSON array valid dengan properti: title, date (YYYY-MM-DD), startTime (HH:mm), endTime (HH:mm), description. Pastikan hanya mereturn JSON murni, tanpa teks lain.";
+  // Define schema for structured output
+  const geminiSchema = {
+    type: SchemaType.ARRAY,
+    description: "Daftar mata kuliah atau kegiatan dari jadwal",
+    items: {
+      type: SchemaType.OBJECT,
+      properties: {
+        title: { type: SchemaType.STRING, description: "Nama Mata Kuliah / Kegiatan" },
+        day: { type: SchemaType.STRING, description: "Hari (e.g. Monday, Tuesday)", nullable: true },
+        date: { type: SchemaType.STRING, description: "Tanggal format YYYY-MM-DD" },
+        startTime: { type: SchemaType.STRING, description: "Waktu mulai format HH:MM (default 00:00 jika seharian)" },
+        endTime: { type: SchemaType.STRING, description: "Waktu selesai format HH:MM (default 23:59 jika seharian)" },
+        description: { type: SchemaType.STRING, description: "Ruang / Dosen / Keterangan", nullable: true }
+      },
+      required: ["title", "date", "startTime", "endTime"]
+    }
+  } as any;
 
-  let rawResponse = "";
-
-  if (keys.groq) {
+  // Primary: Gemini Vision with inlineData (works for PDF, images, etc.)
+  if (keys.gemini && base64) {
     try {
-      rawResponse = await callGroqChat(
-        systemContext,
-        prompt,
-        isImage ? "llama-3.2-90b-vision-preview" : "qwen/qwen3.8-27b" // Use vision model if image, else qwen
-      );
+      const genAI = new GoogleGenerativeAI(keys.gemini);
+      const model = genAI.getGenerativeModel({
+        model: "gemini-3.6-flash",
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: geminiSchema,
+        },
+      });
+
+      const result = await model.generateContent([
+        EXTRACTION_SYSTEM_PROMPT,
+        "Analisis dokumen yang dilampirkan dan ekstrak semua kegiatan/jadwal ke dalam JSON array.",
+        { inlineData: { data: base64, mimeType } },
+      ]);
+
+      const parsed = JSON.parse(result.response.text());
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+      logger.warn("Gemini returned empty array for schedule extraction");
     } catch (e: any) {
-      console.log("GROQ ERROR:", e);
-      logger.warn("Groq Qwen 3.8 27B error, fallback to Gemini:", e.message);
+      logger.warn("Gemini Vision extraction error:", e.message);
+      if (!textFallback || textFallback.trim().length <= 10) {
+        throw new Error(`Gemini Vision Error: ${e.message}`);
+      }
     }
   }
 
-  if (!rawResponse && keys.gemini) {
-    try {
-      rawResponse = await callGeminiChat(
-        "Kamu adalah parser jadwal akademik cerdas yang mengekstrak informasi ke format JSON array valid.",
-        prompt
-      );
-    } catch (e: any) {
-      console.log("GEMINI ERROR:", e);
-      logger.warn("Gemini schedule extraction error:", e.message);
+  // Fallback: text-based extraction (for plain text files or if vision fails)
+  if (textFallback && textFallback.trim().length > 10) {
+    if (keys.gemini) {
+      try {
+        const genAI = new GoogleGenerativeAI(keys.gemini);
+        const model = genAI.getGenerativeModel({
+          model: "gemini-3.6-flash",
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: geminiSchema,
+          },
+        });
+        const result = await model.generateContent([
+          EXTRACTION_SYSTEM_PROMPT,
+          `Analisis teks jadwal berikut:\n\n${textFallback.slice(0, 10000)}`,
+        ]);
+        return JSON.parse(result.response.text());
+      } catch (e: any) {
+        logger.warn("Gemini text extraction fallback error:", e.message);
+      }
+    }
+
+    // Last resort: Groq text-based
+    if (keys.groq) {
+      try {
+        const rawResponse = await callGroqChat(
+          EXTRACTION_SYSTEM_PROMPT,
+          `Analisis teks jadwal berikut dan kembalikan JSON array:\n\n${textFallback.slice(0, 10000)}`,
+          "qwen/qwen3.8-27b"
+        );
+        const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
+        if (jsonMatch) return JSON.parse(jsonMatch[0]);
+      } catch (e: any) {
+        logger.warn("Groq text extraction fallback error:", e.message);
+      }
     }
   }
 
-  if (!rawResponse && keys.groq) {
-    rawResponse = await callGroqChat(
-      "Kamu adalah parser jadwal akademik cerdas yang mengekstrak informasi ke format JSON array valid.",
-      prompt,
-      "openai/gpt-oss-120b"
-    );
-  }
-
-  if (!rawResponse) {
-    throw new Error("Tidak dapat mengekstrak jadwal dari dokumen.");
-  }
-
-  const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
-  }
-
-  throw new Error("Format jadwal tidak dapat dikenali secara otomatis.");
+  throw new Error("Tidak dapat mengekstrak jadwal dari dokumen.");
 }
 
 // ----------------------------------------------------
@@ -313,7 +367,7 @@ async function callGeminiChat(
 
   const genAI = new GoogleGenerativeAI(keys.gemini);
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: "gemini-3.6-flash",
     generationConfig: options ? {
       responseMimeType: options.responseMimeType,
       responseSchema: options.responseSchema,

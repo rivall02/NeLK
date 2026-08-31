@@ -20,6 +20,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "10mb",
     },
   },
+  turbopack: {},
   // Security headers
   async headers() {
     return [
