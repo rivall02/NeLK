@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { extractScheduleWithAI } from "../src/lib/ai";
 import { logger } from "../src/lib/logger";
 
