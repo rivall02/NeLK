@@ -186,7 +186,7 @@ Dokumen:\n${documentText.slice(0, 10000)}`;
       rawResponse = await callGroqChat(
         systemContext,
         prompt,
-        isImage ? "llama-3.2-11b-vision-preview" : "qwen/qwen3.8-27b" // Use vision model if image, else qwen
+        isImage ? "llama-3.2-90b-vision-preview" : "qwen/qwen3.8-27b" // Use vision model if image, else qwen
       );
     } catch (e: any) {
       logger.warn("Groq Qwen 3.8 27B error, fallback to Gemini:", e.message);
@@ -306,7 +306,7 @@ async function callGeminiChat(systemPrompt: string, userMessage: string): Promis
   if (!keys.gemini) throw new Error("Kunci API Gemini belum dikonfigurasi.");
 
   const genAI = new GoogleGenerativeAI(keys.gemini);
-  const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
   
   if (userMessage.startsWith("data:image/")) {
     const match = userMessage.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
