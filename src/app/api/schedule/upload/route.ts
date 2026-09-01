@@ -8,18 +8,20 @@ import { validateExtractedSchedule } from "@/lib/scheduling/validator";
 import { logger } from "@/lib/logger";
 import { auth } from "@/auth";
 
-// Allowed image mime types for upload
-const ALLOWED_IMAGE_MIME_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-];
+// Removed strict image mime types to allow any image format
 
 // Allowed document mime types
 const ALLOWED_DOC_MIME_TYPES = [
   "application/pdf",
   "text/plain",
+];
+
+// Allowed image mime types
+const ALLOWED_IMAGE_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
 ];
 
 export async function POST(request: Request) {
@@ -119,6 +121,7 @@ export async function POST(request: Request) {
       });
 
       return NextResponse.json({
+        success: true,
         message: extractedEvents.length > 0 ? "File berhasil diproses" : "Tidak ada jadwal yang dapat diekstrak.",
         storedKey: stored.storageKey,
         extractedEvents,

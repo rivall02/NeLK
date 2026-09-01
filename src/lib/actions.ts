@@ -402,20 +402,22 @@ export async function createEvent(data: {
   const user = await requireAuth();
   const validated = validateEventInput(data);
 
-  // Validate event duration (minimum 30 min, maximum 4 hours)
+  // Validate event duration (minimum 30 min)
   if (validated.startTime && validated.endTime) {
     const [startH, startM] = validated.startTime.split(":").map(Number);
     const [endH, endM] = validated.endTime.split(":").map(Number);
     const startMinutes = startH * 60 + startM;
     const endMinutes = endH * 60 + endM;
-    const duration = endMinutes - startMinutes;
+    let duration = endMinutes - startMinutes;
 
-    if (duration < 30) {
+    // Handle cross-midnight or 00:00-23:59 cases
+    if (duration < 0) duration += 24 * 60;
+
+    if (duration > 0 && duration < 30 && duration !== 1439) {
+      // 1439 is 23h59m (00:00 to 23:59)
       throw new Error("Durasi acara minimal 30 menit.");
     }
-    if (duration > 240) {
-      throw new Error("Durasi acara maksimal 4 jam.");
-    }
+    // Removed 4-hour max limit to support full-day events
   }
 
   // Check for schedule conflicts

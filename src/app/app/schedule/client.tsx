@@ -303,9 +303,9 @@ export default function ScheduleClient({
 
       const result = await res.json();
 
-      if (!result.error && result.extractedEvents && result.extractedEvents.length > 0) {
-        setExtractedEvents(result.extractedEvents);
-        setShowImportModal(true);
+      if (result.success && result.extractedEvents && result.extractedEvents.length > 0) {
+              setExtractedEvents(result.extractedEvents);
+              setShowImportModal(true);
       } else {
         toast.error(
           result.message ||

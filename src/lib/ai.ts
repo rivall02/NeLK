@@ -210,31 +210,52 @@ export async function extractScheduleWithAI(input: ScheduleExtractionInput | str
 
   // Primary: Gemini Vision with inlineData (works for PDF, images, etc.)
   if (keys.gemini && base64) {
-    try {
-      const genAI = new GoogleGenerativeAI(keys.gemini);
-      const model = genAI.getGenerativeModel({
-        model: "gemini-3.6-flash",
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: geminiSchema,
-        },
-      });
+    let attempt = 0;
+    const maxAttempts = 3;
+    // Models that support vision - use gemini-2.0-flash which is widely available
+    const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+    
+    while (attempt < maxAttempts) {
+      try {
+        const modelName = modelsToTry[attempt] || "gemini-2.0-flash";
+        logger.info(`Attempting Gemini Vision extraction with model: ${modelName} (attempt ${attempt + 1}/${maxAttempts})`);
+        
+        const genAI = new GoogleGenerativeAI(keys.gemini);
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: geminiSchema,
+          },
+        });
 
-      const result = await model.generateContent([
-        EXTRACTION_SYSTEM_PROMPT,
-        "Analisis dokumen yang dilampirkan dan ekstrak semua kegiatan/jadwal ke dalam JSON array.",
-        { inlineData: { data: base64, mimeType } },
-      ]);
+        const result = await model.generateContent([
+          EXTRACTION_SYSTEM_PROMPT,
+          "Analisis dokumen yang dilampirkan dan ekstrak semua kegiatan/jadwal ke dalam JSON array.",
+          { inlineData: { data: base64, mimeType } },
+        ]);
 
-      const parsed = JSON.parse(result.response.text());
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-      logger.warn("Gemini returned empty array for schedule extraction");
-    } catch (e: any) {
-      logger.warn("Gemini Vision extraction error:", e.message);
-      if (!textFallback || textFallback.trim().length <= 10) {
-        throw new Error(`Gemini Vision Error: ${e.message}`);
+        const responseText = result.response.text();
+        logger.info("Gemini Vision raw response:", { responseLength: responseText.length, first200: responseText.slice(0, 200) });
+        
+        const parsed = JSON.parse(responseText);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+        logger.warn(`Gemini returned empty/invalid result for schedule extraction with ${modelName}`);
+        break;
+      } catch (e: any) {
+        attempt++;
+        logger.warn(`Gemini Vision extraction error on attempt ${attempt}:`, e.message);
+        
+        if (attempt >= maxAttempts) {
+          if (!textFallback || textFallback.trim().length <= 10) {
+            throw new Error(`Gemini Vision Error after ${maxAttempts} attempts: ${e.message}`);
+          }
+        } else {
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+        }
       }
     }
   }
@@ -245,7 +266,7 @@ export async function extractScheduleWithAI(input: ScheduleExtractionInput | str
       try {
         const genAI = new GoogleGenerativeAI(keys.gemini);
         const model = genAI.getGenerativeModel({
-          model: "gemini-3.6-flash",
+          model: "gemini-2.0-flash",
           generationConfig: {
             responseMimeType: "application/json",
             responseSchema: geminiSchema,
@@ -367,7 +388,7 @@ async function callGeminiChat(
 
   const genAI = new GoogleGenerativeAI(keys.gemini);
   const model = genAI.getGenerativeModel({
-    model: "gemini-3.6-flash",
+    model: "gemini-2.0-flash",
     generationConfig: options ? {
       responseMimeType: options.responseMimeType,
       responseSchema: options.responseSchema,
