@@ -440,12 +440,29 @@ export async function createEvent(data: {
     const newStart = newStartH * 60 + newStartM;
     const newEnd = newEndH * 60 + newEndM;
 
+    // Check if this is an all-day event (00:00 - 23:59)
+    const isNewAllDay = newStart === 0 && newEnd === 1439;
+
     for (const existing of existingEvents) {
       if (existing.startTime && existing.endTime) {
         const [existStartH, existStartM] = existing.startTime.split(":").map(Number);
         const [existEndH, existEndM] = existing.endTime.split(":").map(Number);
         const existStart = existStartH * 60 + existStartM;
         const existEnd = existEndH * 60 + existEndM;
+
+        // Check if existing is an all-day event
+        const isExistingAllDay = existStart === 0 && existEnd === 1439;
+
+        // All-day events don't conflict with other all-day events
+        // Only non-all-day events conflict with each other
+        if (isNewAllDay && isExistingAllDay) {
+          continue; // Skip conflict check for all-day events
+        }
+
+        // All-day events can coexist with any other event
+        if (isNewAllDay || isExistingAllDay) {
+          continue; // Skip conflict check
+        }
 
         // Check for overlap: startA < endB && startB < endA
         if (newStart < existEnd && existStart < newEnd) {
