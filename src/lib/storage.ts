@@ -26,6 +26,13 @@ const ALLOWED_MIME_TYPES: Record<string, string[]> = {
   "text/markdown": [".md", ".markdown"],
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
   "application/msword": [".doc"],
+  // Image types for AI vision extraction
+  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/webp": [".webp"],
+  "image/gif": [".gif"],
+  "image/bmp": [".bmp"],
+  "image/tiff": [".tiff", ".tif"],
 };
 
 export class LocalSecureStorageProvider implements StorageProvider {

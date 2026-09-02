@@ -208,6 +208,14 @@ export async function extractScheduleWithAI(input: ScheduleExtractionInput | str
     }
   } as any;
 
+  console.log("[Gemini Vision] Starting extraction", { 
+    hasBase64: !!base64, 
+    base64Length: base64?.length || 0, 
+    mimeType,
+    hasTextFallback: !!textFallback,
+    textFallbackLength: textFallback?.length || 0
+  });
+
   // Primary: Gemini Vision with inlineData (works for PDF, images, etc.)
   if (keys.gemini && base64) {
     let attempt = 0;
@@ -229,14 +237,19 @@ export async function extractScheduleWithAI(input: ScheduleExtractionInput | str
           },
         });
 
-        const result = await model.generateContent([
-          EXTRACTION_SYSTEM_PROMPT,
-          "Analisis dokumen yang dilampirkan dan ekstrak semua kegiatan/jadwal ke dalam JSON array.",
-          { inlineData: { data: base64, mimeType } },
-        ]);
+        const result = await model.generateContent({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: EXTRACTION_SYSTEM_PROMPT + "\n\nAnalisis dokumen yang dilampirkan dan ekstrak semua kegiatan/jadwal ke dalam JSON array." },
+              { inlineData: { mimeType: mimeType, data: base64 } },
+            ]
+          }],
+        });
 
         const responseText = result.response.text();
-        logger.info("Gemini Vision raw response:", { responseLength: responseText.length, first200: responseText.slice(0, 200) });
+        console.log("[Gemini Vision] Raw response length:", responseText.length);
+        console.log("[Gemini Vision] Raw response preview:", responseText.slice(0, 300));
         
         const parsed = JSON.parse(responseText);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -246,14 +259,17 @@ export async function extractScheduleWithAI(input: ScheduleExtractionInput | str
         break;
       } catch (e: any) {
         attempt++;
-        logger.warn(`Gemini Vision extraction error on attempt ${attempt}:`, e.message);
+        const errMsg = e instanceof Error ? e.message : String(e);
+        console.log("[Gemini Vision] Attempt error:", errMsg);
         
         if (attempt >= maxAttempts) {
           if (!textFallback || textFallback.trim().length <= 10) {
-            throw new Error(`Gemini Vision Error after ${maxAttempts} attempts: ${e.message}`);
+            console.log("[Gemini Vision] All attempts failed, throwing error");
+            throw new Error(`Gemini Vision Error after ${maxAttempts} attempts: ${errMsg}`);
           }
         } else {
           // Wait before retrying
+          console.log(`[Gemini Vision] Retrying in ${2000 * attempt}ms...`);
           await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
         }
       }

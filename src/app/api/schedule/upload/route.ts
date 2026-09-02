@@ -72,6 +72,12 @@ export async function POST(request: Request) {
 
     // Convert file to base64 for Gemini Vision (works for PDF, images, etc.)
     const base64Content = buffer.toString("base64");
+    console.log("[Upload] File info:", { 
+      fileName: file.name, 
+      mimeType: file.type, 
+      size: file.size,
+      base64Length: base64Content.length 
+    });
     
     // Fix mimeType for images (image/jpg -> image/jpeg)
     let mimeType = file.type;
@@ -157,13 +163,12 @@ export async function POST(request: Request) {
       if (!rawEvents || rawEvents.length === 0) {
         logger.warn("No events extracted from file", { fileName: file.name });
         return NextResponse.json({
-          success: true,
-          message: "File berhasil diupload, tetapi tidak ada jadwal yang dapat diekstrak dari gambar.",
+          success: false,
+          message: "Tidak ada jadwal yang dapat diekstrak dari gambar. Pastikan foto jelas dan teks terbaca.",
           storedKey: stored.storageKey,
           extractedEvents: [],
           eventCount: 0,
           needsReview: true,
-          suggestion: "Pastikan foto jadwal cukup jelas dan terbaca. Coba foto dengan kontras lebih baik.",
         });
       }
       
@@ -173,23 +178,22 @@ export async function POST(request: Request) {
       // AI returns: { title, date, startTime, endTime, day?, description? }
       extractedEvents = rawEvents.map((item: any) => {
         let day = item.day || "";
-        // Derive day from date if not provided
-        if (!day && item.date) {
-          const dateObj = new Date(item.date);
-          if (!isNaN(dateObj.getTime())) {
-            const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-            day = days[dateObj.getDay()];
-          }
+        let date = item.date || "";
+
+        // If no date but have day, convert day name to date for upcoming week
+        if (!date && day) {
+          date = getNextDateForDay(day);
         }
+
         return {
           title: item.title || item.name || "",
-          date: item.date || "",
+          date,
           startTime: item.startTime || "00:00",
           endTime: item.endTime || "23:59",
           day,
           description: item.description || "",
         };
-      }).filter((e: any) => e.title && e.date);
+      }).filter((e: any) => e.title && (e.date || e.day));
       logger.info("Schedule extracted from file", {
         userId: session.user.id,
         file: file.name,
@@ -257,4 +261,36 @@ export async function GET(request: Request) {
       details: error instanceof Error ? error.message : String(error),
     }, { status: 500 });
   }
+}
+
+// Helper: Convert day name (e.g., "Senin", "Senin, Rabu") to date for upcoming week
+function getNextDateForDay(dayInput: string): string {
+  const dayMap: Record<string, number> = {
+    "minggu": 0, "sunday": 0,
+    "senin": 1, "monday": 1,
+    "selasa": 2, "tuesday": 2,
+    "rabu": 3, "wednesday": 3,
+    "kamis": 4, "thursday": 4,
+    "jumat": 5, "friday": 5,
+    "sabtu": 6, "saturday": 6,
+  };
+
+  // Handle "Senin, Rabu" format - take first day
+  const firstDay = dayInput.split(",")[0].trim().toLowerCase();
+  const targetDay = dayMap[firstDay];
+
+  if (targetDay === undefined) {
+    // Default to next Monday if day not recognized
+    return getNextDateForDay("senin");
+  }
+
+  const today = new Date();
+  const todayDay = today.getDay();
+  let daysUntil = targetDay - todayDay;
+  if (daysUntil <= 0) daysUntil += 7;
+
+  const targetDate = new Date(today);
+  targetDate.setDate(today.getDate() + daysUntil);
+
+  return targetDate.toISOString().split("T")[0];
 }
