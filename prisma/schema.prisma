@@ -55,6 +55,7 @@ model User {
   timezone         String          @default("Asia/Jakarta")
   notificationSettings Json?
   privacyProfile   String          @default("private")
+  activeSessionId  String?         // Currently active study session
   accounts         Account[]
   sessions         Session[]
   tasks            Task[]
@@ -68,6 +69,7 @@ model User {
   activities       Activity[]
   notifications    Notification[]
   dailyQuizAttempts UserQuizAttempt[]
+  studySessions    StudySession[]
 }
 
 model VerificationToken {
@@ -90,6 +92,10 @@ model Task {
   dueDate     DateTime?
   sourceUrl   String?
   userId      String
+  sessionId   String?
+  courseId    String?
+  session     StudySession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  course      Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -101,21 +107,29 @@ model Note {
   content      String?
   visibility   String      @default("private") // "public" | "private"
   userId       String
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId    String?
+  courseId     String?
   collectionId String?
+  session      StudySession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  course       Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   collection   Collection?  @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 }
 
 model Event {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   description String?
   date        DateTime
   startTime   String?
   endTime     String?
   userId      String
+  sessionId   String?
+  courseId    String?
+  session     StudySession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  course      Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -149,14 +163,20 @@ model Document {
 }
 
 model Course {
-  id          String      @id @default(cuid())
-  title       String
-  description String?
-  userId      String
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  flashcards  Flashcard[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id           String      @id @default(cuid())
+  title        String
+  description  String?
+  userId       String
+  sessionId    String?
+  courseId     String?     // Google Classroom course ID (for sync)
+  session      StudySession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  flashcards   Flashcard[]
+  tasks        Task[]
+  notes        Note[]
+  events       Event[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 }
 
 model Notification {
@@ -222,4 +242,21 @@ model UserQuizAttempt {
   answeredAt   DateTime @default(now())
   isCorrect    Boolean
   timeTaken    Int?
+}
+
+// Study Session for separating data per semester/period
+model StudySession {
+  id          String    @id @default(cuid())
+  name        String
+  startDate   DateTime?
+  endDate     DateTime?
+  isAllTime   Boolean   @default(false)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+  notes       Note[]
+  events      Event[]
+  courses     Course[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }

@@ -62,6 +62,10 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ connected: boolean; count: number } | null>(null);
+  const [showCourseSelect, setShowCourseSelect] = useState(false);
+  const [availableCourses, setAvailableCourses] = useState<any[]>([]);
+  const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(false);
   const filtered = tasks.filter((t) => {
     if (t.status !== activeTab) return false;
     return true;
@@ -172,9 +176,43 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
   }
 
   async function handleSyncClassroom() {
+    // First, show course selection modal
+    if (!showCourseSelect) {
+      setLoadingCourses(true);
+      try {
+        const res = await fetch("/api/classroom/courses");
+        if (res.ok) {
+          const data = await res.json();
+          setAvailableCourses(data.courses || []);
+          if (data.courses?.length === 0) {
+            toast.info("Tidak ada kelas yang ditemukan di Google Classroom.");
+            return;
+          }
+        } else {
+          const { signIn } = await import("next-auth/react");
+          await signIn("google", { callbackUrl: "/app/tasks" });
+          return;
+        }
+      } catch (e) {
+        toast.error("Gagal mengambil daftar kelas dari Google Classroom.");
+        return;
+      } finally {
+        setLoadingCourses(false);
+      }
+    }
+    setShowCourseSelect(!showCourseSelect);
+  }
+
+  async function executeClassroomSync() {
+    if (selectedCourses.length === 0) {
+      toast.error("Pilih minimal satu kelas untuk disinkronkan.");
+      return;
+    }
+
+    setShowCourseSelect(false);
     setIsSyncing(true);
     try {
-      const result = await syncGoogleClassroom();
+      const result = await syncGoogleClassroom(selectedCourses.join(","));
       setSyncStatus({ connected: result.connected, count: result.count });
       if (result.success) {
         toast.success(result.message || `Berhasil menyinkronkan ${result.count} tugas dari Google Classroom.`);
@@ -190,7 +228,16 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
       toast.error(e.message || "Gagal menyinkronkan tugas.");
     } finally {
       setIsSyncing(false);
+      setSelectedCourses([]);
     }
+  }
+
+  function toggleCourseSelection(courseId: string) {
+    setSelectedCourses((prev) =>
+      prev.includes(courseId)
+        ? prev.filter((id) => id !== courseId)
+        : [...prev, courseId]
+    );
   }
 
   return (
@@ -506,6 +553,89 @@ export default function TasksClient({ initialTasks }: { initialTasks: Task[] }) 
           </motion.div>
         )}
       </div>
+
+      {/* Course Selection Modal for Classroom Sync */}
+      <AnimatePresence>
+        {showCourseSelect && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={() => setShowCourseSelect(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-bold text-[var(--color-text)] mb-2">
+                Pilih Kelas untuk Sinkronisasi
+              </h3>
+              <p className="text-sm text-[var(--color-text-muted)] mb-4">
+                Pilih kelas yang ingin disinkronkan. Hanya tugas dari kelas yang dipilih yang akan masuk.
+              </p>
+
+              {loadingCourses ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-4 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (
+                <>
+                  <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+                    {availableCourses.map((course) => (
+                      <label
+                        key={course.id}
+                        className="flex items-center gap-3 p-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedCourses.includes(course.id)}
+                          onChange={() => toggleCourseSelection(course.id)}
+                          className="w-5 h-5 rounded border-[var(--color-border)] text-[var(--color-primary)]"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[var(--color-text)] truncate">
+                            {course.name}
+                          </p>
+                          {course.section && (
+                            <p className="text-xs text-[var(--color-text-muted)]">
+                              {course.section}
+                            </p>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-[var(--color-text-muted)]">
+                      {selectedCourses.length} kelas dipilih
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowCourseSelect(false)}
+                        className="px-4 py-2 rounded-xl text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        onClick={executeClassroomSync}
+                        disabled={selectedCourses.length === 0 || isSyncing}
+                        className="px-4 py-2 rounded-xl text-sm font-medium bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
+                      >
+                        {isSyncing ? "Menyinkronkan..." : "Sinkronkan"}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

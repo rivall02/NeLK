@@ -89,6 +89,10 @@ export default function ScheduleClient({
   const [showImportModal, setShowImportModal] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractedEvents, setExtractedEvents] = useState<any[]>([]);
+  const [uploadType, setUploadType] = useState<"schedule" | "calendar">("schedule");
+  const [uploadAttempt, setUploadAttempt] = useState(0);
+  const [showUploadTypeMenu, setShowUploadTypeMenu] = useState(false);
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: "", end: "" });
 
   // Calculate days in current selected month
   const daysInMonth = useMemo(() => {
@@ -277,7 +281,7 @@ export default function ScheduleClient({
     }
   };
 
-  // Handle file upload for PDF/foto import
+  // Handle file upload for PDF/foto import with retry logic
   const handleFileSelect = async (file: File) => {
     if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
       toast.error(
@@ -292,32 +296,54 @@ export default function ScheduleClient({
     }
 
     setIsExtracting(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
+    setUploadAttempt(1);
 
-      const res = await fetch("/api/schedule/upload", {
-        method: "POST",
-        body: formData,
-      });
+    let lastError = "";
 
-      const result = await res.json();
+    // Retry logic - max 3 attempts
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      setUploadAttempt(attempt);
+      toast.info(`Mengupload dan menganalisis... (Attempt ${attempt}/3)`, { duration: 2 });
 
-      if (result.success && result.extractedEvents && result.extractedEvents.length > 0) {
-              setExtractedEvents(result.extractedEvents);
-              setShowImportModal(true);
-      } else {
-        toast.error(
-          result.message ||
-            "Gagal menganalisis dokumen. Pastikan teks terbaca jelas."
-        );
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("uploadType", uploadType); // "schedule" or "calendar"
+
+        const res = await fetch("/api/schedule/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        const result = await res.json();
+
+        if (result.success && result.extractedEvents && result.extractedEvents.length > 0) {
+          setExtractedEvents(result.extractedEvents);
+          setShowImportModal(true);
+          setIsExtracting(false);
+          toast.success(`Berhasil menganalisis ${result.extractedEvents.length} jadwal!`);
+          return;
+        } else if (attempt < 3) {
+          lastError = result.message || "Gagal menganalisis dokumen.";
+          toast.warning(`Attempt ${attempt} gagal. Mencoba lagi...`);
+          continue;
+        } else {
+          toast.error(
+            result.message || "Gagal menganalisis dokumen setelah 3 percobaan. Pastikan teks terbaca jelas."
+          );
+        }
+      } catch (err: any) {
+        lastError = err.message || "Gagal mengupload file.";
+        if (attempt < 3) {
+          toast.warning(`Attempt ${attempt} gagal. Mencoba lagi...`);
+          continue;
+        } else {
+          toast.error(lastError);
+        }
       }
-    } catch (err: any) {
-      logger.error("File upload error", err);
-      toast.error(err.message || "Gagal mengupload file. Coba lagi.");
-    } finally {
-      setIsExtracting(false);
     }
+
+    setIsExtracting(false);
   };
 
   // Accept extracted events and add to schedule
@@ -382,11 +408,39 @@ export default function ScheduleClient({
           />
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={() => document.getElementById("file-upload-input")?.click()}
-            className="flex items-center gap-2 px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] rounded-xl text-xs sm:text-sm font-semibold transition-colors active:scale-95 shadow-[var(--shadow-sm)]"
+            onClick={() => setShowUploadTypeMenu(!showUploadTypeMenu)}
+            className="flex items-center gap-2 px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] rounded-xl text-xs sm:text-sm font-semibold transition-colors active:scale-95 shadow-[var(--shadow-sm)] relative"
           >
             <FilePdf weight="duotone" className="text-red-500 text-base" />
             <span>Import PDF / Foto</span>
+
+            {/* Upload Type Dropdown */}
+            {showUploadTypeMenu && (
+              <div className="absolute top-full left-0 mt-2 w-64 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg z-50 overflow-hidden">
+                <button
+                  onClick={() => {
+                    setUploadType("schedule");
+                    setShowUploadTypeMenu(false);
+                    document.getElementById("file-upload-input")?.click();
+                  }}
+                  className="w-full px-4 py-3 text-left hover:bg-[var(--color-surface-hover)] transition-colors border-b border-[var(--color-border)]"
+                >
+                  <p className="text-sm font-semibold text-[var(--color-text)]">Upload Jadwal</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">Upload jadwal kuliah atau kegiatan</p>
+                </button>
+                <button
+                  onClick={() => {
+                    setUploadType("calendar");
+                    setShowUploadTypeMenu(false);
+                    document.getElementById("file-upload-input")?.click();
+                  }}
+                  className="w-full px-4 py-3 text-left hover:bg-[var(--color-surface-hover)] transition-colors"
+                >
+                  <p className="text-sm font-semibold text-[var(--color-text)]">Upload Kalender Akademik</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">Upload kalender akademik kampus</p>
+                </button>
+              </div>
+            )}
           </motion.button>
 
           <motion.button
@@ -813,6 +867,47 @@ export default function ScheduleClient({
               {/* Extracted Events Preview */}
               {extractedEvents.length > 0 && (
                 <div className="space-y-3">
+                  {/* Date Range Selection */}
+                  <div className="grid grid-cols-2 gap-3 p-4 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)]">
+                    <div>
+                      <label className="text-xs font-semibold text-[var(--color-text-muted)] mb-1 block">
+                        Dari Tanggal
+                      </label>
+                      <input
+                        type="date"
+                        value={dateRange.start}
+                        onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                        className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-[var(--color-text-muted)] mb-1 block">
+                        Sampai Tanggal
+                      </label>
+                      <input
+                        type="date"
+                        value={dateRange.end}
+                        onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                        className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!dateRange.end}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setDateRange({ ...dateRange, end: "" });
+                            }
+                          }}
+                          className="w-4 h-4 rounded"
+                        />
+                        Aktif selamanya (tanpa batas akhir)
+                      </label>
+                    </div>
+                  </div>
+
                   <h4 className="text-sm font-bold text-[var(--color-text)]">Jadwal yang Ditemukan:</h4>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {extractedEvents.map((ev, idx) => (

@@ -801,6 +801,120 @@ export async function getProactiveInsight() {
   }
 }
 
+export async function getDashboardInsight() {
+  const user = await requireAuth();
+
+  // Gather data from all sources
+  const [noteCount, taskCount, eventCount, courseCount] = await Promise.all([
+    prisma.note.count({ where: { userId: user.id } }),
+    prisma.task.count({ where: { userId: user.id } }),
+    prisma.event.count({ where: { userId: user.id } }),
+    prisma.course.count({ where: { userId: user.id } }),
+  ]);
+
+  // If nothing exists yet
+  if (noteCount === 0 && taskCount === 0 && eventCount === 0 && courseCount === 0) {
+    return {
+      title: "Selamat Datang",
+      summary: "NeLK siap membantumu belajar! Mulai dengan membuat catatan, mengatur tugas, atau mengisi jadwal kuliahmu.",
+      source: "welcome",
+    };
+  }
+
+  // Gather actual content from all sources
+  const [recentNotes, upcomingTasks, todayEvents, courses] = await Promise.all([
+    // Get 3 most recent notes with content
+    prisma.note.findMany({
+      where: { userId: user.id, content: { not: null } },
+      orderBy: { updatedAt: "desc" },
+      take: 3,
+      select: { title: true, content: true },
+    }),
+    // Get 3 nearest incomplete tasks
+    prisma.task.findMany({
+      where: { userId: user.id, status: { not: "DONE" } },
+      orderBy: { dueDate: "asc" },
+      take: 3,
+      select: { title: true, dueDate: true, priority: true },
+    }),
+    // Get today's and upcoming events
+    prisma.event.findMany({
+      where: { userId: user.id, date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
+      orderBy: { date: "asc" },
+      take: 3,
+      select: { title: true, date: true, startTime: true },
+    }),
+    // Get courses
+    prisma.course.findMany({
+      where: { userId: user.id },
+      take: 5,
+      select: { title: true, description: true },
+    }),
+  ]);
+
+  // Build context string for AI
+  let contextParts: string[] = [];
+
+  if (recentNotes.length > 0) {
+    const notesText = recentNotes
+      .map((n) => `Catatan: ${n.title}\n${(n.content || "").slice(0, 500)}`)
+      .join("\n---\n");
+    contextParts.push(notesText);
+  }
+
+  if (upcomingTasks.length > 0) {
+    const tasksText = upcomingTasks
+      .map((t) => `Tugas: ${t.title} (${t.priority}, deadline: ${t.dueDate ? new Date(t.dueDate).toLocaleDateString("id-ID") : "tanpa deadline"})`)
+      .join("\n");
+    contextParts.push(`Tugas mendatang:\n${tasksText}`);
+  }
+
+  if (todayEvents.length > 0) {
+    const eventsText = todayEvents
+      .map((e) => `Event: ${e.title} (${e.startTime || new Date(e.date).toLocaleDateString("id-ID")})`)
+      .join("\n");
+    contextParts.push(`Jadwal hari ini:\n${eventsText}`);
+  }
+
+  if (courses.length > 0) {
+    contextParts.push(`Mata kuliah: ${courses.map((c) => c.title).join(", ")}`);
+  }
+
+  // If no AI configured, return summary without AI
+  if (!hasGroqConfigured() && !hasGeminiConfigured()) {
+    const summary = contextParts.length > 0
+      ? contextParts.slice(0, 2).join(". ") + "."
+      : "Tambahkan catatan, tugas, atau jadwal untuk mendapatkan insight dari AI.";
+    return {
+      title: "Ringkasan Aktivitas",
+      summary,
+      source: "system",
+    };
+  }
+
+  const context = contextParts.join("\n\n");
+
+  try {
+    const summary = await generateComplexTaskAI(
+      "Kamu adalah asisten akademik NeLK yang memberikan insight dan saran belajar berdasarkan data aktivitas pengguna.",
+      `Berdasarkan data aktivitas pengguna NeLK berikut, buat 2-3 insight atau saran belajar yang actionable dalam Bahasa Indonesia:\n\n${context.slice(0, 4000)}\n\nInsight harus praktis dan membantu pengguna prioritas belajar.`
+    );
+    return {
+      title: "Insight AI NeLK",
+      summary,
+      source: "ai",
+    };
+  } catch (e) {
+    return {
+      title: "Ringkasan Aktivitas",
+      summary: contextParts.length > 0
+        ? `Kamu memiliki ${noteCount} catatan, ${taskCount} tugas (${upcomingTasks.length} mendatang), dan ${eventCount} jadwal.`
+        : "Mulai tambahkan materi belajarmu untuk mendapatkan insight dari AI.",
+      source: "system",
+    };
+  }
+}
+
 export async function getRandomNoteSummary() {
   const user = await requireAuth();
 
@@ -904,7 +1018,7 @@ export async function getUserProfile() {
 
 import { getValidGoogleToken } from "@/lib/classroom";
 
-export async function syncGoogleClassroom() {
+export async function syncGoogleClassroom(courseIds?: string) {
   const user = await requireAuth();
 
   // Find linked Google account
@@ -932,6 +1046,9 @@ export async function syncGoogleClassroom() {
     };
   }
 
+  // Parse selected course IDs
+  const selectedIds = courseIds ? courseIds.split(",").filter(Boolean) : [];
+
   try {
     // Real Classroom API fetch using token
     const res = await fetch("https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE", {
@@ -948,7 +1065,13 @@ export async function syncGoogleClassroom() {
     }
 
     const data = await res.json();
-    const courses = data.courses || [];
+    let courses = data.courses || [];
+
+    // Filter by selected course IDs if provided
+    if (selectedIds.length > 0) {
+      courses = courses.filter((c: any) => selectedIds.includes(c.id));
+    }
+
     let syncedCount = 0;
 
     for (const course of courses.slice(0, 5)) {
@@ -1474,6 +1597,11 @@ export async function getDailyQuiz() {
     };
   }
 
+  // Determine difficulty based on day (Monday = Advanced)
+  const dayOfWeek = today.getDay();
+  const isMonday = dayOfWeek === 1;
+  const difficulty = isMonday ? "ADVANCED" : "HARD";
+
   // Get or create today's quiz
   let dailyQuiz = await prisma.dailyQuiz.findFirst({
     where: {
@@ -1483,10 +1611,8 @@ export async function getDailyQuiz() {
 
   if (!dailyQuiz) {
     // Generate a new daily quiz from predefined questions
-    const topics = ["matematika", "sejarah", "umum", "sains", "bahasa"];
-    const topic = topics[Math.floor(Math.random() * topics.length)];
-
-    const questions = [
+    // Hard questions (default)
+    const hardQuestions = [
       // Matematika
       { q: "Berapa hasil dari 15 × 12?", opts: ["A. 180", "B. 170", "C. 190", "D. 160"], a: "A", t: "matematika" },
       { q: "Akar kuadrat dari 144 adalah...", opts: ["A. 14", "B. 12", "C. 11", "D. 13"], a: "B", t: "matematika" },
@@ -1510,6 +1636,33 @@ export async function getDailyQuiz() {
       { q: "Kata 'MGMB' merupakan singkatan dari...", opts: ["A. Maka Gue莫 Begitu", "B. Maka Gue Mulai Belajar", "C. Makin Gue Mau Belajar", "D. Masa Gue Mau Buru"], a: "A", t: "bahasa" },
     ];
 
+    // Advanced questions (harder - for Monday)
+    const advancedQuestions = [
+      // Matematika (harder)
+      { q: "Jika f(x) = 3x² - 2x + 1, maka f'(2) = ...", opts: ["A. 10", "B. 12", "C. 8", "D. 14"], a: "A", t: "matematika" },
+      { q: "Nilai dari log₂(64) adalah...", opts: ["A. 5", "B. 6", "C. 7", "D. 8"], a: "B", t: "matematika" },
+      { q: "Turunan dari sin(3x) adalah...", opts: ["A. 3cos(3x)", "B. cos(3x)", "C. -3cos(3x)", "D. -cos(3x)"], a: "A", t: "matematika" },
+      { q: "Integral dari 2x dx = ...", opts: ["A. x² + C", "B. 2x² + C", "C. x + C", "D. 2 + C"], a: "A", t: "matematika" },
+      // Sejarah (harder)
+      { q: "Perang dunia II berakhir pada tahun...", opts: ["A. 1944", "B. 1945", "C. 1946", "D. 1943"], a: "B", t: "sejarah" },
+      { q: "Siapa presiden pertama Republik Indonesia?", opts: ["A. Moh. Hatta", "B. Soekarno", "C. Soeharto", "D. Habibie"], a: "B", t: "sejarah" },
+      { q: "Peristiwa yang memicu pecahnya Perang Dunia I adalah...", opts: ["A. Penembakan Kennedy", "B. Assassikasi Archduke Franz Ferdinand", "C. Serangan Pearl Harbor", "D. Revolusi Prancis"], a: "B", t: "sejarah" },
+      // Sains (harder)
+      { q: "Bilangan Avogadro menyatakan jumlah partikel dalam...", opts: ["A. 1 gram", "B. 1 mol", "C. 1 liter", "D. 1 kg"], a: "B", t: "sains" },
+      { q: "Planet yang dikenal sebagai 'Red Planet' adalah...", opts: ["A. Venus", "B. Mars", "C. Jupiter", "D. Saturnus"], a: "B", t: "sains" },
+      { q: "Hukum Newton kedua menyatakan F = ...", opts: ["A. m/a", "B. m×a", "C. m+a", "D. m-a"], a: "B", t: "sains" },
+      // Umum (harder)
+      { q: "Siapa penemu teori relativitas?", opts: ["A. Newton", "B. Einstein", "C. Hawking", "D. Bohr"], a: "B", t: "umum" },
+      { q: "Organisme yang dapat menghasilkan makanannya sendiri disebut...", opts: ["A. Heterotrof", "B. Autotrof", "C. Parasit", "D. Saprofit"], a: "B", t: "umum" },
+      { q: "Ibu kota Australia adalah...", opts: ["A. Sydney", "B. Melbourne", "C. Canberra", "D. Brisbane"], a: "C", t: "umum" },
+      // Bahasa (harder)
+      { q: "Kata 'ubiquitous' berarti...", opts: ["A. Langka", "B. ada di mana-mana", "C. tidak terlihat", "D. berubah"], a: "B", t: "bahasa" },
+      { q: "Bahasa resmi yang digunakan di Brasil adalah...", opts: ["A. Spanyol", "B. Portugis", "C. Inggris", "D. Perancis"], a: "B", t: "bahasa" },
+    ];
+
+    // Select questions based on difficulty
+    const questions = isMonday ? advancedQuestions : hardQuestions;
+
     // Pick a random question
     const randomIdx = Math.floor(Math.random() * questions.length);
     const picked = questions[randomIdx];
@@ -1529,6 +1682,8 @@ export async function getDailyQuiz() {
     quiz: dailyQuiz,
     isCorrect: null,
     timeTaken: null,
+    difficulty,
+    baseXp: isMonday ? 30 : 20, // Advanced = 30 XP, Hard = 20 XP
   };
 }
 
@@ -1573,10 +1728,14 @@ export async function answerDailyQuiz(quizId: string, answer: string, timeTaken:
     data: { attempts: { increment: 1 } },
   });
 
-  // Award XP if correct
+  // Award XP if correct (Advanced = 30 XP, Hard = 20 XP)
   let gainedXp = 0;
   if (isCorrect) {
-    gainedXp = 10;
+    // Get quiz to determine difficulty
+    const dayOfWeek = new Date().getDay();
+    const isMonday = dayOfWeek === 1;
+    gainedXp = isMonday ? 30 : 20;
+    
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
       data: { xp: { increment: gainedXp } },
@@ -1722,4 +1881,109 @@ export async function batchCreateEvents(
     message: `Berhasil menambahkan ${created} jadwal dari ${eventsData.length} data yang ditemukan.`,
     conflicts: conflicts.length > 0 ? conflicts : undefined,
   };
+}
+
+// Study Session CRUD
+export async function getStudySessions() {
+  const user = await requireAuth();
+
+  const sessions = await prisma.studySession.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return sessions;
+}
+
+export async function createStudySession(data: {
+  name: string;
+  startDate?: string;
+  endDate?: string;
+  isAllTime?: boolean;
+}) {
+  const user = await requireAuth();
+
+  if (!data.name?.trim()) {
+    throw new Error("Nama sesi tidak boleh kosong.");
+  }
+
+  const session = await prisma.studySession.create({
+    data: {
+      name: data.name.trim(),
+      startDate: data.startDate ? new Date(data.startDate) : null,
+      endDate: data.endDate ? new Date(data.endDate) : null,
+      isAllTime: data.isAllTime || false,
+      userId: user.id,
+    },
+  });
+
+  // If this is the first session, set it as active
+  const existingSessions = await prisma.studySession.count({
+    where: { userId: user.id },
+  });
+
+  if (existingSessions === 1) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { activeSessionId: session.id },
+    });
+  }
+
+  revalidatePath("/app");
+  return session;
+}
+
+export async function setActiveSession(sessionId: string) {
+  const user = await requireAuth();
+
+  // Verify session belongs to user
+  const session = await prisma.studySession.findFirst({
+    where: { id: sessionId, userId: user.id },
+  });
+
+  if (!session) {
+    throw new Error("Sesi tidak ditemukan.");
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { activeSessionId: sessionId },
+  });
+
+  revalidatePath("/app");
+  return { success: true };
+}
+
+export async function deleteStudySession(sessionId: string) {
+  const user = await requireAuth();
+
+  // Verify session belongs to user
+  const session = await prisma.studySession.findFirst({
+    where: { id: sessionId, userId: user.id },
+  });
+
+  if (!session) {
+    throw new Error("Sesi tidak ditemukan.");
+  }
+
+  // Get current user to check activeSessionId
+  const currentUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { activeSessionId: true },
+  });
+
+  // If this is the active session, clear it
+  if (currentUser?.activeSessionId === sessionId) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { activeSessionId: null },
+    });
+  }
+
+  await prisma.studySession.delete({
+    where: { id: sessionId },
+  });
+
+  revalidatePath("/app");
+  return { success: true };
 }

@@ -30,6 +30,8 @@ export default function GamificationClient({
   const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<string | null>(null);
   const [quizResult, setQuizResult] = useState<{ isCorrect: boolean; gainedXp: number; correctAnswer: string } | null>(null);
   const [quizTimeTaken, setQuizTimeTaken] = useState(0);
+  const [quizDifficulty, setQuizDifficulty] = useState<string>("HARD");
+  const [quizBaseXp, setQuizBaseXp] = useState<number>(20);
 
   // Load daily quiz
   useEffect(() => {
@@ -38,8 +40,11 @@ export default function GamificationClient({
         const result = await getDailyQuiz();
         setDailyQuiz(result.quiz);
         setQuizAttempted(result.alreadyAttempted);
+        setQuizDifficulty(result.difficulty || "HARD");
+        setQuizBaseXp(result.baseXp || 20);
         if (result.alreadyAttempted && result.isCorrect !== null) {
-          setQuizResult({ isCorrect: result.isCorrect, gainedXp: result.isCorrect ? 10 : 0, correctAnswer: result.quiz.correctAnswer });
+          const baseXp = result.baseXp || 20;
+          setQuizResult({ isCorrect: result.isCorrect, gainedXp: result.isCorrect ? baseXp : 0, correctAnswer: result.quiz.correctAnswer });
         }
       } catch (err) {
         console.error("Failed to load daily quiz", err);
@@ -111,7 +116,7 @@ export default function GamificationClient({
         setXp((prev) => prev + result.gainedXp);
         const newLevel = Math.floor((xp + result.gainedXp) / 1000) + 1;
         if (newLevel > level) setLevel(newLevel);
-        toast.success(`Benar! +${result.gainedXp} XP 🎉`);
+        toast.success(`Benar! +${result.gainedXp} XP`);
       } else {
         toast.info(`Jawaban: ${result.correctAnswer}. Coba lagi besok!`);
       }
@@ -123,12 +128,12 @@ export default function GamificationClient({
   const xpForNextLevel = 1000;
   const xpProgress = Math.min(100, Math.round(((xp % xpForNextLevel) / xpForNextLevel) * 100));
 
-  const topicEmojis: Record<string, string> = {
-    matematika: "🔢",
-    sejarah: "📜",
-    umum: "🌍",
-    sains: "🔬",
-    bahasa: "📖",
+  const topicLabels: Record<string, string> = {
+    matematika: "Matematika",
+    sejarah: "Sejarah",
+    umum: "Umum",
+    sains: "Sains",
+    bahasa: "Bahasa",
   };
 
   return (
@@ -190,6 +195,13 @@ export default function GamificationClient({
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Question weight="fill" className="text-yellow-300" />
                 Kuis Harian
+                <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                  quizDifficulty === "ADVANCED"
+                    ? "bg-purple-500/30 text-purple-200 border border-purple-400/50"
+                    : "bg-amber-500/30 text-amber-200 border border-amber-400/50"
+                }`}>
+                  {quizDifficulty === "ADVANCED" ? "ADVANCED" : "HARD"}
+                </span>
               </h2>
               {!quizLoading && !quizAttempted && dailyQuiz && (
                 <div className="bg-white/20 px-3 py-1 rounded-xl font-mono text-sm font-bold backdrop-blur-sm">
@@ -198,7 +210,7 @@ export default function GamificationClient({
               )}
               {quizAttempted && (
                 <div className={`px-3 py-1 rounded-xl text-xs font-bold backdrop-blur-sm ${quizResult?.isCorrect ? "bg-green-400/30 text-green-200" : "bg-white/20 text-white/80"}`}>
-                  {quizResult?.isCorrect ? "✅ Benar!" : "❌ Salah"}
+                  {quizResult?.isCorrect ? "Benar!" : "Salah"}
                 </div>
               )}
             </div>
@@ -210,8 +222,7 @@ export default function GamificationClient({
             ) : dailyQuiz ? (
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-lg">{topicEmojis[dailyQuiz.topic] || "❓"}</span>
-                  <span className="text-xs font-medium text-white/70 capitalize">{dailyQuiz.topic}</span>
+                  <span className="text-xs font-medium text-white/70 capitalize">{topicLabels[dailyQuiz.topic] || dailyQuiz.topic}</span>
                 </div>
                 <p className="text-base font-semibold mb-4">{dailyQuiz.question}</p>
 
@@ -245,7 +256,7 @@ export default function GamificationClient({
                 {quizAttempted && quizResult && (
                   <div className="mt-3 text-xs text-white/70">
                     {quizResult.isCorrect
-                      ? `🎉 Benar! +${quizResult.gainedXp} XP diperoleh.`
+                      ? `Benar! +${quizResult.gainedXp} XP diperoleh.`
                       : `Jawaban yang benar: ${dailyQuiz.correctAnswer}. Coba lagi besok!`}
                   </div>
                 )}

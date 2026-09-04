@@ -2,6 +2,21 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import Link from "next/link";
+import { toast } from "sonner";
+import {
+  getRandomNoteSummary,
+  getUserProfile,
+  getUpcomingTasks,
+  getTodaySchedule,
+  getRecentNotes,
+  updateContextMode,
+  getStudySessions,
+  createStudySession,
+  setActiveSession,
+  deleteStudySession,
+  getDashboardInsight,
+} from "@/lib/actions";
 import {
   Lightning,
   CheckSquare,
@@ -15,21 +30,15 @@ import {
   Plus,
   CaretDown,
   CaretUp,
+  X,
+  Stack,
+  Trash,
+  Check,
 } from "@phosphor-icons/react";
-import Link from "next/link";
-import { toast } from "sonner";
-import {
-  getRandomNoteSummary,
-  getUserProfile,
-  getUpcomingTasks,
-  getTodaySchedule,
-  getRecentNotes,
-  updateContextMode,
-} from "@/lib/actions";
 
 export default function DashboardPage() {
   const greeting = getGreeting();
-  const [noteSummary, setNoteSummary] = useState<{ title: string; summary: string } | null>(null);
+  const [aiInsight, setAiInsight] = useState<{ title: string; summary: string; source?: string } | null>(null);
   const [userProfile, setUserProfile] = useState<{
     name: string | null;
     email: string | null;
@@ -37,29 +46,49 @@ export default function DashboardPage() {
     level: number;
     contextMode: string;
     subscriptionPlan: string;
+    activeSessionId: string | null;
   } | null>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [schedule, setSchedule] = useState<any[]>([]);
   const [notes, setNotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [aiInsightExpanded, setAiInsightExpanded] = useState(true);
+  // Study Session State
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [activeSession, setActiveSessionState] = useState<any>(null);
+  const [showSessionModal, setShowSessionModal] = useState(false);
+  const [showNewSession, setShowNewSession] = useState(false);
+  const [newSessionName, setNewSessionName] = useState("");
+  const [newSessionStart, setNewSessionStart] = useState("");
+  const [newSessionEnd, setNewSessionEnd] = useState("");
+  const [newSessionAllTime, setNewSessionAllTime] = useState(false);
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [summary, profile, upcoming, today, recent] = await Promise.all([
-          getRandomNoteSummary(),
+        const [insight, profile, upcoming, today, recent, studySessions] = await Promise.all([
+          getDashboardInsight(),
           getUserProfile(),
           getUpcomingTasks(),
           getTodaySchedule(),
           getRecentNotes(),
+          getStudySessions(),
         ]);
 
-        setNoteSummary(summary as any);
-        if (profile) setUserProfile(profile as any);
+        setAiInsight(insight as any);
+        if (profile) {
+          setUserProfile(profile as any);
+          // Find active session
+          const activeId = (profile as any).activeSessionId;
+          if (activeId && studySessions) {
+            const active = studySessions.find((s: any) => s.id === activeId);
+            setActiveSessionState(active || null);
+          }
+        }
         setTasks(upcoming || []);
         setSchedule(today || []);
         setNotes(recent || []);
+        setSessions(studySessions || []);
       } catch (err) {
         console.error("Failed to load dashboard data", err);
       } finally {
@@ -86,6 +115,60 @@ export default function DashboardPage() {
     }
   };
 
+  // Session handlers
+  const handleCreateSession = async () => {
+    if (!newSessionName.trim()) {
+      toast.error("Nama sesi tidak boleh kosong.");
+      return;
+    }
+    try {
+      const newSession = await createStudySession({
+        name: newSessionName.trim(),
+        startDate: newSessionStart || undefined,
+        endDate: newSessionAllTime ? undefined : newSessionEnd || undefined,
+        isAllTime: newSessionAllTime,
+      });
+      setSessions((prev) => [newSession, ...prev]);
+      if (!activeSession) {
+        setActiveSessionState(newSession);
+        await setActiveSession(newSession.id);
+      }
+      setShowNewSession(false);
+      setNewSessionName("");
+      setNewSessionStart("");
+      setNewSessionEnd("");
+      setNewSessionAllTime(false);
+      toast.success(`Sesi "${newSession.name}" berhasil dibuat!`);
+    } catch (e: any) {
+      toast.error(e.message || "Gagal membuat sesi.");
+    }
+  };
+
+  const handleSwitchSession = async (sessionId: string) => {
+    try {
+      await setActiveSession(sessionId);
+      const session = sessions.find((s) => s.id === sessionId);
+      setActiveSessionState(session);
+      setShowSessionModal(false);
+      toast.success(`Berpindah ke sesi "${session?.name}"`);
+    } catch (e: any) {
+      toast.error(e.message || "Gagal berpindah sesi.");
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    try {
+      await deleteStudySession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      if (activeSession?.id === sessionId) {
+        setActiveSessionState(sessions.find((s) => s.id !== sessionId) || null);
+      }
+      toast.success("Sesi berhasil dihapus.");
+    } catch (e: any) {
+      toast.error(e.message || "Gagal menghapus sesi.");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -109,34 +192,41 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text)] md:text-3xl flex items-center gap-2 flex-wrap">
             {greeting}, {displayName}
-            <span className="text-xs font-semibold px-2.5 py-1 bg-[var(--color-primary-light)] text-[var(--color-primary)] rounded-lg">
-              {contextMode === "NORMAL"
-                ? "Semester Reguler"
-                : contextMode === "EXAM_WEEK"
-                ? "Minggu Ujian (UAS/UTS)"
-                : "Libur Semester"}
-            </span>
+            {/* Active Session Badge */}
+            {activeSession ? (
+              <button
+                onClick={() => setShowSessionModal(true)}
+                className="text-xs font-semibold px-2.5 py-1 bg-[var(--color-primary-light)] text-[var(--color-primary)] rounded-lg hover:bg-[var(--color-primary)] hover:text-white transition-colors flex items-center gap-1"
+              >
+                <Stack size={12} weight="fill" />
+                {activeSession.name}
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowNewSession(true)}
+                className="text-xs font-semibold px-2.5 py-1 bg-[var(--color-primary-light)] text-[var(--color-primary)] rounded-lg hover:bg-[var(--color-primary)] hover:text-white transition-colors flex items-center gap-1"
+              >
+                <Plus size={12} weight="bold" />
+                Buat Sesi
+              </button>
+            )}
           </h1>
           <p className="mt-1 text-xs sm:text-sm text-[var(--color-text-muted)]">
-            {contextMode === "EXAM_WEEK"
-              ? "Fokus penuh pada materi ujian dan deadline tugas terdekat."
-              : contextMode === "VACATION"
-              ? "Waktunya bersantai dan mengembangkan hobi di luar akademik."
+            {activeSession
+              ? `Sesi aktif: ${activeSession.name}${activeSession.isAllTime ? " (Aktif selamanya)" : activeSession.startDate ? ` (Berlaku sejak ${new Date(activeSession.startDate).toLocaleDateString("id-ID")})` : ""}`
               : `Kamu memiliki ${tasks.length} tugas aktif dan ${schedule.length} jadwal hari ini.`}
           </p>
         </div>
 
-        {/* Mobile: Semester left-aligned, Level right-aligned */}
+        {/* Mobile: Session/Level right-aligned */}
         <div className="flex flex-row items-center justify-between w-full md:w-auto gap-4">
-          <select
-            value={contextMode}
-            onChange={(e) => handleSetContext(e.target.value)}
-            className="flex-1 md:flex-initial text-xs font-semibold bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3.5 py-2.5 outline-none text-[var(--color-text)] cursor-pointer hover:border-[var(--color-primary)] transition-colors shadow-[var(--shadow-sm)]"
+          <button
+            onClick={() => setShowSessionModal(true)}
+            className="flex-1 md:flex-initial text-xs font-semibold bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3.5 py-2.5 outline-none text-[var(--color-text)] cursor-pointer hover:border-[var(--color-primary)] transition-colors shadow-[var(--shadow-sm)] flex items-center gap-2"
           >
-            <option value="NORMAL">Semester Reguler</option>
-            <option value="EXAM_WEEK">Minggu Ujian</option>
-            <option value="VACATION">Liburan</option>
-          </select>
+            <Stack size={14} className="text-[var(--color-primary)]" />
+            {activeSession ? "Ganti Sesi" : "Buat Sesi"}
+          </button>
 
           <Link
             href="/app/gamification"
@@ -202,13 +292,13 @@ export default function DashboardPage() {
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden"
                 >
-                  {noteSummary && noteSummary.title && (
+                  {aiInsight && aiInsight.title && (
                     <div className="mt-3 mb-2 text-xs font-bold text-[var(--color-text)] px-2.5 py-1 bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] inline-block">
-                      📚 {noteSummary.title}
+                      📚 {aiInsight.title}
                     </div>
                   )}
                   <div className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)] whitespace-pre-wrap">
-                    {noteSummary ? noteSummary.summary : "Menganalisis jadwal dan catatan belajarmu..."}
+                    {aiInsight ? aiInsight.summary : "Menganalisis jadwal dan catatan belajarmu..."}
                   </div>
                   <div className="mt-3 pt-3 border-t border-[var(--color-border)] flex items-center justify-between">
                     <Link
@@ -357,14 +447,14 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            {noteSummary && noteSummary.title && (
+            {aiInsight && aiInsight.title && (
               <div className="mb-2 text-xs font-bold text-[var(--color-text)] px-2.5 py-1 bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] inline-block">
-                📚 {noteSummary.title}
+                📚 {aiInsight.title}
               </div>
             )}
 
             <div className="text-xs leading-relaxed text-[var(--color-text-muted)] whitespace-pre-wrap">
-              {noteSummary ? noteSummary.summary : "Menganalisis pola belajarmu..."}
+              {aiInsight ? aiInsight.summary : "Menganalisis pola belajarmu..."}
             </div>
 
             <div className="mt-4 pt-3 border-t border-[var(--color-border)] flex items-center justify-between">
@@ -477,6 +567,149 @@ export default function DashboardPage() {
           </div>
         </motion.div>
       </div>
+
+      {/* Session Management Modal */}
+      <AnimatePresence>
+        {showSessionModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={() => setShowSessionModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-[var(--color-text)] flex items-center gap-2">
+                  <Stack size={20} className="text-[var(--color-primary)]" />
+                  Kelola Sesi
+                </h3>
+                <button
+                  onClick={() => setShowSessionModal(false)}
+                  className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Session List */}
+              <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+                {sessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                      activeSession?.id === session.id
+                        ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5"
+                        : "border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]"
+                    }`}
+                  >
+                    <button
+                      onClick={() => handleSwitchSession(session.id)}
+                      className="flex-1 text-left"
+                    >
+                      <p className="text-sm font-semibold text-[var(--color-text)]">{session.name}</p>
+                      <p className="text-xs text-[var(--color-text-muted)]">
+                        {session.isAllTime
+                          ? "Aktif selamanya"
+                          : session.startDate
+                          ? `Dari ${new Date(session.startDate).toLocaleDateString("id-ID")}`
+                          : "Tanpa batas waktu"}
+                      </p>
+                    </button>
+                    {activeSession?.id === session.id && (
+                      <Check size={18} className="text-[var(--color-primary)]" weight="bold" />
+                    )}
+                    <button
+                      onClick={() => handleDeleteSession(session.id)}
+                      className="p-2 text-[var(--color-text-muted)] hover:text-red-500 hover:bg-red-50 rounded-lg"
+                    >
+                      <Trash size={16} />
+                    </button>
+                  </div>
+                ))}
+
+                {sessions.length === 0 && (
+                  <p className="text-sm text-[var(--color-text-muted)] text-center py-4">
+                    Belum ada sesi. Buat sesi pertama kamu.
+                  </p>
+                )}
+              </div>
+
+              {/* Create New Session */}
+              {showNewSession ? (
+                <div className="space-y-3 p-4 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)]">
+                  <input
+                    type="text"
+                    placeholder="Nama sesi (contoh: Semester 5)"
+                    value={newSessionName}
+                    onChange={(e) => setNewSessionName(e.target.value)}
+                    className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
+                    autoFocus
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-[var(--color-text-muted)] mb-1 block">Dari Tanggal</label>
+                      <input
+                        type="date"
+                        value={newSessionStart}
+                        onChange={(e) => setNewSessionStart(e.target.value)}
+                        className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-[var(--color-text-muted)] mb-1 block">Sampai Tanggal</label>
+                      <input
+                        type="date"
+                        value={newSessionEnd}
+                        onChange={(e) => setNewSessionEnd(e.target.value)}
+                        disabled={newSessionAllTime}
+                        className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] outline-none disabled:opacity-50"
+                      />
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newSessionAllTime}
+                      onChange={(e) => setNewSessionAllTime(e.target.checked)}
+                      className="w-4 h-4 rounded"
+                    />
+                    Aktif selamanya (tanpa batas akhir)
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowNewSession(false)}
+                      className="flex-1 px-4 py-2 rounded-xl text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      onClick={handleCreateSession}
+                      className="flex-1 px-4 py-2 rounded-xl text-sm font-medium bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
+                    >
+                      Buat Sesi
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowNewSession(true)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
+                >
+                  <Plus size={16} weight="bold" />
+                  Buat Sesi Baru
+                </button>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

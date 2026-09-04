@@ -68,6 +68,14 @@ export async function generateAIChatResponse({
 }): Promise<string> {
   const fullSystemPrompt = `Kamu adalah asisten akademik pribadi NeLK (NextLink). Bantu mahasiswa mengatur tugas, memahami jadwal kuliah, dan merangkum materi secara ramah, ringkas, dan jelas dalam Bahasa Indonesia.
 
+PERATURAN FORMAT RESPONS:
+- Gunakan teks polos tanpa simbol dekoratif seperti *, #, -, atau emoji
+- Heading dan subheading hanya gunakan nama предмет atau краткое описание
+- Bullet points hanya gunakan tanda hubung (-) atau angka (1., 2., 3.)
+- Tidak perlu menggunakan blockquote, code block, atau elemen visual berlebihan
+- Buat respons yang bersih, profesional, dan mudah dibaca
+- Prioritaskan kejelasan dan kemudahan dibaca di atas dekorasi
+
 ${context ? `Konteks Akademik Mahasiswa:\n${context}\n` : ""}`;
 
   const keys = getKeys();
@@ -130,11 +138,21 @@ ${context ? `Konteks Akademik Mahasiswa:\n${context}\n` : ""}`;
  * Model: Groq Complex Task → openai/gpt-oss-120b
  */
 export async function generateComplexTaskAI(systemPrompt: string, userContent: string): Promise<string> {
+  // Add clean format instruction to system prompt
+  const cleanFormatInstruction = `
+
+PERATURAN FORMAT:
+- Gunakan teks polos tanpa simbol dekoratif
+- Tidak perlu emoji atau elemen visual berlebihan
+- Buat hasil yang bersih dan mudah dibaca`;
+
+  const cleanSystemPrompt = systemPrompt + cleanFormatInstruction;
+
   const keys = getKeys();
 
   if (keys.groq) {
     try {
-      return await callGroqChat(systemPrompt, userContent, "openai/gpt-oss-120b");
+      return await callGroqChat(cleanSystemPrompt, userContent, "openai/gpt-oss-120b");
     } catch (e: any) {
       logger.warn("Groq GPT-OSS 120B error, fallback to Gemini:", e.message);
     }
@@ -142,14 +160,14 @@ export async function generateComplexTaskAI(systemPrompt: string, userContent: s
 
   if (keys.gemini) {
     try {
-      return await callGeminiChat(systemPrompt, userContent);
+      return await callGeminiChat(cleanSystemPrompt, userContent);
     } catch (e: any) {
       logger.warn("Gemini fallback error:", e.message);
     }
   }
 
   if (keys.groq) {
-    return await callGroqChat(systemPrompt, userContent, "openai/gpt-oss-20b");
+    return await callGroqChat(cleanSystemPrompt, userContent, "openai/gpt-oss-20b");
   }
 
   throw new Error("Layanan AI untuk pemrosesan materi sedang tidak tersedia.");

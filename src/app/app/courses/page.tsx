@@ -13,10 +13,41 @@ export default async function CoursesPage() {
     redirect("/login");
   }
 
-  const courses = await prisma.course.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-  });
+  const [courses, notes] = await Promise.all([
+    prisma.course.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.note.findMany({
+      where: { userId: session.user.id },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        visibility: true,
+        updatedAt: true,
+        courseId: true,
+      },
+    }),
+  ]);
 
-  return <CoursesClient initialCourses={courses} />;
+  // Transform notes for client
+  const formattedNotes = notes.map((n) => ({
+    id: n.id,
+    title: n.title,
+    content: n.content || "",
+    preview: n.content ? n.content.slice(0, 100) : "",
+    subject: "Umum",
+    visibility: (n.visibility as "public" | "private") || "private",
+    updatedAt: new Date(n.updatedAt).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    courseId: n.courseId,
+  }));
+
+  return <CoursesClient initialCourses={courses} initialNotes={formattedNotes} />;
 }

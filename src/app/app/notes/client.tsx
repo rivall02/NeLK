@@ -14,6 +14,7 @@ import {
   WarningCircle,
   Eye,
   EyeSlash,
+  ArrowLeft,
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import {
@@ -239,10 +240,24 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
   }
 
   return (
-    <div className="flex h-[calc(100dvh-var(--topbar-height)-48px)] md:h-[calc(100dvh-64px)] gap-0 overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm">
+    <div className="flex h-screen md:h-[calc(100vh-64px)] overflow-hidden bg-[var(--color-bg)]">
+      {/* Mobile Top Bar */}
+      <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 h-12 bg-[var(--color-surface)] border-b border-[var(--color-border)] md:hidden">
+        <button
+          onClick={() => setSelectedNote(null)}
+          className="flex items-center gap-1 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+        >
+          <ArrowLeft size={18} />
+          <span>Daftar</span>
+        </button>
+        <span className="text-xs font-medium text-[var(--color-text-muted)]">
+          {selectedNote ? "Edit Catatan" : "Catatan"}
+        </span>
+      </div>
+
       {/* Sidebar: Notes List */}
       <div
-        className={`flex w-full flex-col border-r border-[var(--color-border)] md:w-[320px] ${
+        className={`flex w-full flex-col border-r border-[var(--color-border)] pt-12 md:pt-0 md:w-[300px] lg:w-[340px] ${
           selectedNote ? "hidden md:flex" : "flex"
         }`}
       >
@@ -274,7 +289,6 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
               className="flex-1 bg-transparent text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none"
             />
           </div>
-
           <div className="flex items-center gap-1.5 pt-0.5">
             {[
               { id: "all", label: "Semua" },
@@ -321,9 +335,7 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
                 <div className="flex items-start justify-between gap-2">
                   <p
                     className={`text-sm font-semibold truncate flex-1 ${
-                      selectedNote?.id === note.id
-                        ? "text-[var(--color-primary)]"
-                        : "text-[var(--color-text)]"
+                      selectedNote?.id === note.id ? "text-[var(--color-primary)]" : "text-[var(--color-text)]"
                     }`}
                   >
                     {note.title}
@@ -372,9 +384,7 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
           {filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Notebook size={40} className="text-[var(--color-text-muted)] mb-2 opacity-50" />
-              <p className="text-sm font-medium text-[var(--color-text-muted)]">
-                Tidak ada catatan ditemukan
-              </p>
+              <p className="text-sm font-medium text-[var(--color-text-muted)]">Tidak ada catatan ditemukan</p>
             </div>
           )}
         </div>
@@ -385,14 +395,14 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
         {selectedNote ? (
           <>
             {/* Editor Header */}
-            <div className="flex items-center justify-between border-b border-[var(--color-border)] px-6 py-3.5 bg-[var(--color-surface)]">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 md:px-6 py-3 bg-[var(--color-surface)]">
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <button
                   onClick={() => setSelectedNote(null)}
                   className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] md:hidden"
                   aria-label="Kembali ke daftar"
                 >
-                  ←
+                  <ArrowLeft size={18} />
                 </button>
                 <input
                   type="text"
@@ -402,13 +412,13 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
                     triggerDebouncedSave(e.target.value, editorContent);
                   }}
                   placeholder="Judul Catatan..."
-                  className="text-lg font-bold text-[var(--color-text)] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[var(--color-text-muted)]"
+                  className="text-base md:text-lg font-bold text-[var(--color-text)] bg-transparent outline-none flex-1 min-w-0 placeholder:text-[var(--color-text-muted)]"
                 />
               </div>
 
               {/* Status & Action Buttons */}
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+              <div className="flex items-center gap-2 md:gap-3">
+                <div className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
                   {saveStatus === "saving" && (
                     <span className="inline-flex items-center gap-1 text-amber-500 font-medium">
                       <Clock size={13} className="animate-spin" /> Menyimpan...
@@ -424,35 +434,33 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
                       <WarningCircle size={13} weight="fill" /> Gagal simpan
                     </span>
                   )}
-                  {saveStatus === "idle" && (
-                    <span className="text-[11px] opacity-70">Autosave aktif</span>
-                  )}
+                  {saveStatus === "idle" && <span className="text-[11px] opacity-70">Autosave</span>}
                 </div>
 
                 <motion.button
                   whileTap={{ scale: 0.95 }}
                   onClick={handleSummarize}
                   disabled={isSummarizing || !editorContent.trim()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20 transition-colors text-xs font-semibold disabled:opacity-50"
-                  aria-label="AI Summarize"
+                  className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-xl bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20 transition-colors text-xs font-semibold disabled:opacity-50"
+                  aria-label="AI Summary"
                 >
                   <Sparkle weight="fill" size={14} className={isSummarizing ? "animate-spin" : ""} />
-                  <span>{isSummarizing ? "Meringkas..." : "AI Summary"}</span>
+                  <span className="hidden sm:inline">{isSummarizing ? "Meringkas..." : "AI Summary"}</span>
                 </motion.button>
 
                 <motion.button
                   whileTap={{ scale: 0.95 }}
                   onClick={() => performSave(selectedNote.id, editorTitle, editorContent)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] transition-colors text-xs font-semibold"
+                  className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-xl bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] transition-colors text-xs font-semibold"
                 >
                   <FloppyDisk size={14} weight="bold" />
-                  <span>Simpan</span>
+                  <span className="hidden sm:inline">Simpan</span>
                 </motion.button>
               </div>
             </div>
 
             {/* Editor Body */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6">
               <textarea
                 value={editorContent}
                 onChange={(e) => {
@@ -460,7 +468,7 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
                   triggerDebouncedSave(editorTitle, e.target.value);
                 }}
                 placeholder="Tulis catatan kuliah, materi dosen, rangkuman rumus, atau ide belajarmu di sini..."
-                className="h-full w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none font-sans"
+                className="h-full w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none font-sans min-h-[200px]"
               />
             </div>
           </>
@@ -471,7 +479,7 @@ export default function NotesClient({ initialNotes }: { initialNotes: Note[] }) 
               Pilih catatan untuk mulai membaca atau mengedit
             </p>
             <p className="mt-1 text-sm text-[var(--color-text-muted)] max-w-sm">
-              Atau klik tombol '+' di sudut kiri atas untuk membuat catatan materi kuliah baru.
+              Atau klik tombol "+" di sudut kiri atas untuk membuat catatan materi kuliah baru.
             </p>
           </div>
         )}
