@@ -406,13 +406,15 @@ export default function ScheduleClient({
             className="hidden"
             id="file-upload-input"
           />
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setShowUploadTypeMenu(!showUploadTypeMenu)}
-            className="flex items-center gap-2 px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] rounded-xl text-xs sm:text-sm font-semibold transition-colors active:scale-95 shadow-[var(--shadow-sm)] relative"
-          >
-            <FilePdf weight="duotone" className="text-red-500 text-base" />
-            <span>Import PDF / Foto</span>
+          <div className="relative">
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowUploadTypeMenu(!showUploadTypeMenu)}
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] rounded-xl text-xs sm:text-sm font-semibold transition-colors active:scale-95 shadow-[var(--shadow-sm)]"
+            >
+              <FilePdf weight="duotone" className="text-red-500 text-base" />
+              <span>Import PDF / Foto</span>
+            </motion.button>
 
             {/* Upload Type Dropdown */}
             {showUploadTypeMenu && (
@@ -441,7 +443,7 @@ export default function ScheduleClient({
                 </button>
               </div>
             )}
-          </motion.button>
+          </div>
 
           <motion.button
             whileTap={{ scale: 0.95 }}

@@ -8,22 +8,6 @@ import { validateExtractedSchedule } from "@/lib/scheduling/validator";
 import { logger } from "@/lib/logger";
 import { auth } from "@/auth";
 
-// Removed strict image mime types to allow any image format
-
-// Allowed document mime types
-const ALLOWED_DOC_MIME_TYPES = [
-  "application/pdf",
-  "text/plain",
-];
-
-// Allowed image mime types
-const ALLOWED_IMAGE_MIME_TYPES = [
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
-];
-
 export async function POST(request: Request) {
   // Check authentication
   const session = await auth();
@@ -46,7 +30,14 @@ export async function POST(request: Request) {
     }
 
     // Validate mime type
-    const allowedMimes = [...ALLOWED_IMAGE_MIME_TYPES, ...ALLOWED_DOC_MIME_TYPES];
+    const allowedMimes = [
+      "application/pdf",
+      "text/plain",
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/webp",
+    ];
     if (!allowedMimes.includes(file.type)) {
       return NextResponse.json({
         error: `Tipe file ${file.type} tidak didukung untuk ekstraksi jadwal.`
@@ -57,8 +48,23 @@ export async function POST(request: Request) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Upload to storage
-    const stored = await storageService.saveFile(buffer, file.name, file.type);
+    // Upload to storage (Google Drive if connected, local fallback for dev)
+    let stored;
+    try {
+      const { uploadToUserDrive } = await import("@/lib/gdrive-storage");
+      const gdriveResult = await uploadToUserDrive(session.user.id, buffer, file.name, file.type);
+      stored = {
+        storageKey: gdriveResult.storageKey,
+        url: null,
+      };
+      logger.info("Schedule file uploaded to GDrive", { storageKey: gdriveResult.storageKey });
+    } catch (e: any) {
+      logger.warn("GDrive upload failed, using local storage", { reason: e.message });
+      stored = await storageService.saveFile(buffer, file.name, file.type);
+      logger.info("Schedule file stored locally", { storageKey: stored.storageKey });
+    }
+
+    const storageKey = stored.storageKey;
 
     // Check if AI is configured
     if (!hasGeminiConfigured()) {

@@ -10,6 +10,7 @@ export interface StoredFileMetadata {
   originalName: string;
   mimeType: string;
   sizeBytes: number;
+  url?: string;
 }
 
 export interface StorageProvider {
@@ -29,6 +30,7 @@ const ALLOWED_MIME_TYPES: Record<string, string[]> = {
   // Image types for AI vision extraction
   "image/png": [".png"],
   "image/jpeg": [".jpg", ".jpeg"],
+  "image/jpg": [".jpg", ".jpeg"],
   "image/webp": [".webp"],
   "image/gif": [".gif"],
   "image/bmp": [".bmp"],
@@ -70,7 +72,7 @@ export class LocalSecureStorageProvider implements StorageProvider {
     const allowedExts = ALLOWED_MIME_TYPES[normalizedMime];
     if (!allowedExts) {
       throw new Error(
-        `Tipe file "${mimeType}" tidak didukung. Format yang didukung: PDF, TXT, MD, DOCX.`
+        `Tipe file "${mimeType}" tidak didukung. Format yang didukung: PDF, TXT, MD, DOCX, PNG, JPG, WEBP.`
       );
     }
 
@@ -135,5 +137,179 @@ export class LocalSecureStorageProvider implements StorageProvider {
   }
 }
 
-// Export singleton instance
-export const storageService = new LocalSecureStorageProvider();
+// Vercel Blob Storage Provider - for serverless deployment
+export class VercelBlobStorageProvider implements StorageProvider {
+  private blobToken: string;
+
+  constructor() {
+    this.blobToken = process.env.BLOB_READ_WRITE_TOKEN || "";
+  }
+
+  private getBlobUrl(): string {
+    return `https://${process.env.BLOB_STORE_ID || "store"}.blob.vercel-storage.com`;
+  }
+
+  async saveFile(buffer: Buffer, originalName: string, mimeType: string): Promise<StoredFileMetadata> {
+    if (!this.blobToken) {
+      throw new Error("BLOB_READ_WRITE_TOKEN environment variable is not set.");
+    }
+
+    // 1. Check size limit
+    if (buffer.byteLength > env.MAX_FILE_SIZE_BYTES) {
+      throw new Error(
+        `Ukuran file melebihi batas maksimum (${Math.round(env.MAX_FILE_SIZE_BYTES / (1024 * 1024))}MB).`
+      );
+    }
+
+    // 2. Validate MIME type
+    const normalizedMime = mimeType.toLowerCase();
+    const allowedExts = ALLOWED_MIME_TYPES[normalizedMime];
+    if (!allowedExts) {
+      throw new Error(
+        `Tipe file "${mimeType}" tidak didukung. Format yang didukung: PDF, TXT, MD, DOCX, PNG, JPG, WEBP.`
+      );
+    }
+
+    // 3. Validate file extension
+    const rawExt = extname(originalName).toLowerCase();
+    if (!allowedExts.includes(rawExt)) {
+      throw new Error(
+        `Ekstensi file "${rawExt}" tidak sesuai dengan tipe file (${mimeType}).`
+      );
+    }
+
+    // 4. Generate unique filename
+    const randomKey = randomUUID();
+    const contentHash = createHash("sha256").update(buffer).digest("hex").slice(0, 12);
+    const safeName = originalName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    const storageKey = `${randomKey}-${contentHash}-${safeName}`;
+
+    // 5. Upload to Vercel Blob
+    const uploadUrl = `${this.getBlobUrl()}/${storageKey}`;
+    const response = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${this.blobToken}`,
+        "Content-Type": mimeType,
+        "x-content-type": mimeType,
+      },
+      body: new Uint8Array(buffer),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to upload to Vercel Blob: ${response.status} ${errorText}`);
+    }
+
+    const url = response.url || uploadUrl;
+
+    logger.info("File stored in Vercel Blob", {
+      storageKey,
+      size: buffer.byteLength,
+      mimeType: normalizedMime,
+      url,
+    });
+
+    return {
+      storageKey,
+      originalName: originalName.replace(/[^a-zA-Z0-9.\-_]/g, "_"),
+      mimeType: normalizedMime,
+      sizeBytes: buffer.byteLength,
+      url,
+    };
+  }
+
+  async readFile(storageKey: string): Promise<Buffer> {
+    if (!this.blobToken) {
+      throw new Error("BLOB_READ_WRITE_TOKEN environment variable is not set.");
+    }
+
+    // If storageKey is a URL, extract the path
+    let url = storageKey;
+    if (storageKey.startsWith("http")) {
+      url = storageKey;
+    } else {
+      url = `${this.getBlobUrl()}/${storageKey}`;
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.blobToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to read from Vercel Blob: ${response.status}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  async deleteFile(storageKey: string): Promise<void> {
+    if (!this.blobToken) {
+      throw new Error("BLOB_READ_WRITE_TOKEN environment variable is not set.");
+    }
+
+    try {
+      let url = storageKey;
+      if (!storageKey.startsWith("http")) {
+        url = `${this.getBlobUrl()}/${storageKey}`;
+      }
+
+      await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${this.blobToken}`,
+        },
+      });
+
+      logger.info("File deleted from Vercel Blob", { storageKey });
+    } catch (err) {
+      logger.error("Failed to delete from Vercel Blob", err, { storageKey });
+    }
+  }
+
+  async fileExists(storageKey: string): Promise<boolean> {
+    if (!this.blobToken) return false;
+
+    try {
+      let url = storageKey;
+      if (!storageKey.startsWith("http")) {
+        url = `${this.getBlobUrl()}/${storageKey}`;
+      }
+
+      const response = await fetch(url, {
+        method: "HEAD",
+        headers: {
+          Authorization: `Bearer ${this.blobToken}`,
+        },
+      });
+
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+// Export singleton instance - use Vercel Blob if token is set, otherwise local
+function createStorageService(): StorageProvider {
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    logger.info("Using Vercel Blob storage");
+    return new VercelBlobStorageProvider();
+  }
+
+  // Check if running on Vercel (VERCEL=1) but no blob token
+  if (process.env.VERCEL === "1" && !process.env.BLOB_READ_WRITE_TOKEN) {
+    logger.warn(
+      "Running on Vercel without BLOB_READ_WRITE_TOKEN. " +
+      "Set BLOB_READ_WRITE_TOKEN environment variable to enable file uploads. " +
+      "Falling back to local storage which may not work on serverless."
+    );
+  }
+
+  return new LocalSecureStorageProvider();
+}
+
+export const storageService = createStorageService();
