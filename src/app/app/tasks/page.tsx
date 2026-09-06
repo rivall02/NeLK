@@ -14,9 +14,19 @@ export default async function TasksPage() {
     redirect("/login");
   }
 
+  // Get active session ID for filtering
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { activeSessionId: true },
+  });
+  const activeSessionId = user?.activeSessionId ?? null;
+
   // Fetch tasks from DB
   const tasks = await prisma.task.findMany({
-    where: { userId: session.user.id },
+    where: {
+      userId: session.user.id,
+      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+    },
     orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
   });
 

@@ -34,6 +34,15 @@ async function requireAuth(): Promise<{ id: string; name?: string | null; email?
   };
 }
 
+// Helper to get user's active session ID
+async function getUserActiveSessionId(userId: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { activeSessionId: true },
+  });
+  return user?.activeSessionId ?? null;
+}
+
 // ----------------------------------------------------------------------
 // AUTH ACTIONS
 // ----------------------------------------------------------------------
@@ -132,6 +141,8 @@ export async function createTask(data: {
   const validated = validateTaskInput(data);
   enforceRateLimit(`task:create:${user.id}`, 60, 60 * 1000, "Pembuatan Tugas");
 
+  const activeSessionId = await getUserActiveSessionId(user.id);
+
   const task = await prisma.task.create({
     data: {
       title: validated.title,
@@ -141,6 +152,7 @@ export async function createTask(data: {
       description: validated.description,
       subject: validated.subject,
       userId: user.id,
+      sessionId: activeSessionId,
     },
   });
 
@@ -250,12 +262,14 @@ export async function deleteTask(id: string) {
 export async function createNote(data: { title: string; content?: string }) {
   const user = await requireAuth();
   const validated = validateNoteInput(data);
+  const activeSessionId = await getUserActiveSessionId(user.id);
 
   const note = await prisma.note.create({
     data: {
       title: validated.title,
       content: validated.content,
       userId: user.id,
+      sessionId: activeSessionId,
     },
   });
 
@@ -401,6 +415,7 @@ export async function createEvent(data: {
 }) {
   const user = await requireAuth();
   const validated = validateEventInput(data);
+  const activeSessionId = await getUserActiveSessionId(user.id);
 
   // Validate event duration (minimum 30 min)
   if (validated.startTime && validated.endTime) {
@@ -482,6 +497,7 @@ export async function createEvent(data: {
       endTime: validated.endTime,
       description: validated.description,
       userId: user.id,
+      sessionId: activeSessionId,
     },
   });
 
@@ -803,13 +819,15 @@ export async function getProactiveInsight() {
 
 export async function getDashboardInsight() {
   const user = await requireAuth();
+  const activeSessionId = await getUserActiveSessionId(user.id);
+  const sessionFilter = activeSessionId ? { sessionId: activeSessionId } : {};
 
   // Gather data from all sources
   const [noteCount, taskCount, eventCount, courseCount] = await Promise.all([
-    prisma.note.count({ where: { userId: user.id } }),
-    prisma.task.count({ where: { userId: user.id } }),
-    prisma.event.count({ where: { userId: user.id } }),
-    prisma.course.count({ where: { userId: user.id } }),
+    prisma.note.count({ where: { userId: user.id, ...sessionFilter } }),
+    prisma.task.count({ where: { userId: user.id, ...sessionFilter } }),
+    prisma.event.count({ where: { userId: user.id, ...sessionFilter } }),
+    prisma.course.count({ where: { userId: user.id, ...sessionFilter } }),
   ]);
 
   // If nothing exists yet
@@ -825,28 +843,28 @@ export async function getDashboardInsight() {
   const [recentNotes, upcomingTasks, todayEvents, courses] = await Promise.all([
     // Get 3 most recent notes with content
     prisma.note.findMany({
-      where: { userId: user.id, content: { not: null } },
+      where: { userId: user.id, content: { not: null }, ...sessionFilter },
       orderBy: { updatedAt: "desc" },
       take: 3,
       select: { title: true, content: true },
     }),
     // Get 3 nearest incomplete tasks
     prisma.task.findMany({
-      where: { userId: user.id, status: { not: "DONE" } },
+      where: { userId: user.id, status: { not: "DONE" }, ...sessionFilter },
       orderBy: { dueDate: "asc" },
       take: 3,
       select: { title: true, dueDate: true, priority: true },
     }),
     // Get today's and upcoming events
     prisma.event.findMany({
-      where: { userId: user.id, date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
+      where: { userId: user.id, date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) }, ...sessionFilter },
       orderBy: { date: "asc" },
       take: 3,
       select: { title: true, date: true, startTime: true },
     }),
     // Get courses
     prisma.course.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, ...sessionFilter },
       take: 5,
       select: { title: true, description: true },
     }),
@@ -1020,6 +1038,7 @@ import { getValidGoogleToken } from "@/lib/classroom";
 
 export async function syncGoogleClassroom(courseIds?: string) {
   const user = await requireAuth();
+  const activeSessionId = await getUserActiveSessionId(user.id);
 
   // Find linked Google account
   const googleAccount = await prisma.account.findFirst({
@@ -1122,6 +1141,7 @@ export async function syncGoogleClassroom(courseIds?: string) {
                 dueDate,
                 sourceUrl: item.alternateLink,
                 userId: user.id,
+                sessionId: activeSessionId,
               },
             });
             syncedCount++;
@@ -1447,8 +1467,13 @@ export async function getIntegrationStatus() {
 
 export async function getUpcomingTasks() {
   const user = await requireAuth();
+  const activeSessionId = await getUserActiveSessionId(user.id);
   return await prisma.task.findMany({
-    where: { userId: user.id, status: { not: "DONE" } },
+    where: {
+      userId: user.id,
+      status: { not: "DONE" },
+      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+    },
     orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
     take: 5,
   });
@@ -1456,6 +1481,7 @@ export async function getUpcomingTasks() {
 
 export async function getTodaySchedule() {
   const user = await requireAuth();
+  const activeSessionId = await getUserActiveSessionId(user.id);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -1466,6 +1492,7 @@ export async function getTodaySchedule() {
     where: {
       userId: user.id,
       date: { gte: today, lt: tomorrow },
+      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
     },
     orderBy: { startTime: "asc" },
   });
@@ -1473,8 +1500,12 @@ export async function getTodaySchedule() {
 
 export async function getRecentNotes() {
   const user = await requireAuth();
+  const activeSessionId = await getUserActiveSessionId(user.id);
   return await prisma.note.findMany({
-    where: { userId: user.id },
+    where: {
+      userId: user.id,
+      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+    },
     orderBy: { updatedAt: "desc" },
     take: 4,
   });
@@ -1499,6 +1530,7 @@ export async function markNotificationsRead() {
 
 export async function generateTaskReminders() {
   const user = await requireAuth();
+  const activeSessionId = await getUserActiveSessionId(user.id);
 
   // Completed tasks must NOT receive reminders!
   const upcomingTasks = await prisma.task.findMany({
@@ -1508,6 +1540,7 @@ export async function generateTaskReminders() {
       dueDate: {
         lte: new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
+      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
     },
   });
 
@@ -1777,12 +1810,14 @@ export async function createCourse(title: string, description?: string) {
   const user = await requireAuth();
   const cleanTitle = (title || "").trim().slice(0, 200);
   if (!cleanTitle) throw new Error("Nama mata kuliah / topik wajib diisi.");
+  const activeSessionId = await getUserActiveSessionId(user.id);
 
   const course = await prisma.course.create({
     data: {
       title: cleanTitle,
       description: description?.trim().slice(0, 1000) || null,
       userId: user.id,
+      sessionId: activeSessionId,
     },
   });
 

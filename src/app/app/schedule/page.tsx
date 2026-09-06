@@ -13,14 +13,29 @@ export default async function SchedulePage() {
     redirect("/login");
   }
 
+  // Get active session ID for filtering
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { activeSessionId: true },
+  });
+  const activeSessionId = user?.activeSessionId ?? null;
+
   // Fetch events & upcoming tasks from DB
   const [events, upcomingTasks] = await Promise.all([
     prisma.event.findMany({
-      where: { userId: session.user.id },
+      where: {
+        userId: session.user.id,
+        ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+      },
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
     }),
     prisma.task.findMany({
-      where: { userId: session.user.id, status: { not: "DONE" }, dueDate: { not: null } },
+      where: {
+        userId: session.user.id,
+        status: { not: "DONE" },
+        dueDate: { not: null },
+        ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+      },
       orderBy: { dueDate: "asc" },
       take: 4,
     }),

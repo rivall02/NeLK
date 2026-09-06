@@ -21,18 +21,31 @@ export default async function FilesPage() {
     redirect("/login");
   }
 
+  // Get active session ID for filtering
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { activeSessionId: true },
+  });
+  const activeSessionId = user?.activeSessionId ?? null;
+
   const [documents, courses, notes] = await Promise.all([
     prisma.document.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
     }),
     prisma.course.findMany({
-      where: { userId: session.user.id },
+      where: {
+        userId: session.user.id,
+        ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+      },
       orderBy: { createdAt: "desc" },
       include: { flashcards: true },
     }),
     prisma.note.findMany({
-      where: { userId: session.user.id },
+      where: {
+        userId: session.user.id,
+        ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+      },
       orderBy: { createdAt: "desc" },
     }),
   ]);

@@ -13,9 +13,19 @@ export default async function NotesPage() {
     redirect("/login");
   }
 
+  // Get active session ID for filtering
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { activeSessionId: true },
+  });
+  const activeSessionId = user?.activeSessionId ?? null;
+
   // Fetch notes with full content
   const notes = await prisma.note.findMany({
-    where: { userId: session.user.id },
+    where: {
+      userId: session.user.id,
+      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+    },
     orderBy: { updatedAt: "desc" },
   });
 

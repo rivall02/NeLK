@@ -13,13 +13,26 @@ export default async function CoursesPage() {
     redirect("/login");
   }
 
+  // Get active session ID for filtering
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { activeSessionId: true },
+  });
+  const activeSessionId = user?.activeSessionId ?? null;
+
   const [courses, notes] = await Promise.all([
     prisma.course.findMany({
-      where: { userId: session.user.id },
+      where: {
+        userId: session.user.id,
+        ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+      },
       orderBy: { createdAt: "desc" },
     }),
     prisma.note.findMany({
-      where: { userId: session.user.id },
+      where: {
+        userId: session.user.id,
+        ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+      },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,

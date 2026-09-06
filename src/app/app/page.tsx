@@ -151,6 +151,7 @@ export default function DashboardPage() {
       setActiveSessionState(session);
       setShowSessionModal(false);
       toast.success(`Berpindah ke sesi "${session?.name}"`);
+      setTimeout(() => window.location.reload(), 500);
     } catch (e: any) {
       toast.error(e.message || "Gagal berpindah sesi.");
     }
@@ -164,6 +165,7 @@ export default function DashboardPage() {
         setActiveSessionState(sessions.find((s) => s.id !== sessionId) || null);
       }
       toast.success("Sesi berhasil dihapus.");
+      setTimeout(() => window.location.reload(), 500);
     } catch (e: any) {
       toast.error(e.message || "Gagal menghapus sesi.");
     }
