@@ -26,10 +26,10 @@ import { NotificationBell } from "@/components/app/notification-bell";
 
 const allNavItems = [
   { label: "Beranda", href: "/app", icon: House },
-  { label: "Catatan", href: "/app/notes", icon: Notebook },
+
   { label: "Tugas", href: "/app/tasks", icon: CheckSquare },
   { label: "Jadwal", href: "/app/schedule", icon: CalendarDots },
-  { label: "Belajar", href: "/app/files", icon: GraduationCap },
+  { label: "Belajar", href: "/app/courses", icon: GraduationCap },
   { label: "Komunitas", href: "/app/community", icon: UsersThree },
   { label: "Kesehatan", href: "/app/fitness", icon: Sneaker },
   { label: "AI", href: "/app/ai", icon: Brain },
