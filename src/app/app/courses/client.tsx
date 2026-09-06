@@ -561,6 +561,7 @@ export default function CoursesClient({
                   placeholder="Nama Mata Kuliah / Topik (contoh: Jaringan Komputer)"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
+                  suppressHydrationWarning
                   className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
                 />
                 <input
@@ -568,6 +569,7 @@ export default function CoursesClient({
                   placeholder="Deskripsi singkat atau target belajar (opsional)"
                   value={desc}
                   onChange={(e) => setDesc(e.target.value)}
+                  suppressHydrationWarning
                   className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary)]"
                 />
                 <button
