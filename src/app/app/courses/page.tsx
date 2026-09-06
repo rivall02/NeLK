@@ -27,6 +27,21 @@ export default async function CoursesPage() {
         ...(activeSessionId ? { sessionId: activeSessionId } : {}),
       },
       orderBy: { createdAt: "desc" },
+      include: {
+        documents: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            title: true,
+            fileUrl: true,
+            mimeType: true,
+            fileSize: true,
+            classroomId: true,
+            classroomUrl: true,
+            createdAt: true,
+          },
+        },
+      },
     }),
     prisma.note.findMany({
       where: {
@@ -45,6 +60,31 @@ export default async function CoursesPage() {
     }),
   ]);
 
+  // Format courses with document count
+  const formattedCourses = courses.map((c) => ({
+    id: c.id,
+    title: c.title,
+    description: c.description,
+    courseId: c.courseId, // Google Classroom course ID (if synced)
+    createdAt: c.createdAt,
+    documentCount: c.documents.length,
+    documents: c.documents.map((d) => ({
+      id: d.id,
+      title: d.title,
+      fileUrl: d.fileUrl,
+      mimeType: d.mimeType,
+      fileSize: d.fileSize,
+      classroomId: d.classroomId,
+      classroomUrl: d.classroomUrl,
+      createdAt: d.createdAt,
+      createdAtFormatted: new Date(d.createdAt).toLocaleDateString("id-ID", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }),
+    })),
+  }));
+
   // Transform notes for client
   const formattedNotes = notes.map((n) => ({
     id: n.id,
@@ -62,5 +102,5 @@ export default async function CoursesPage() {
     courseId: n.courseId,
   }));
 
-  return <CoursesClient initialCourses={courses} initialNotes={formattedNotes} />;
+  return <CoursesClient initialCourses={formattedCourses} initialNotes={formattedNotes} />;
 }

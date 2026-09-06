@@ -262,8 +262,7 @@ export default function FilesClient({
             <span>{isUploading ? "Mengunggah..." : "Unggah File"}</span>
           </button>
           
-          <motion.button
-            whileTap={{ scale: 0.95 }}
+          <button
             onClick={async () => {
               const loadingToast = toast.loading("Menyinkronkan materi Classroom...");
               try {
@@ -284,7 +283,7 @@ export default function FilesClient({
           >
             <Lightning size={16} weight="duotone" className="text-[var(--color-primary)]" />
             Sync Classroom
-          </motion.button>
+          </button>
         </motion.div>
       </header>
 
@@ -438,8 +437,7 @@ export default function FilesClient({
             Upload / Buat
           </button>
           
-          <motion.button
-            whileTap={{ scale: 0.95 }}
+          <button
             onClick={async () => {
               const loadingToast = toast.loading("Menyinkronkan materi Classroom...");
               try {
@@ -460,7 +458,7 @@ export default function FilesClient({
           >
             <Lightning size={16} weight="duotone" className="text-[var(--color-primary)]" />
             Sync Classroom
-          </motion.button>
+          </button>
         </div>
 
         {courses.length > 0 ? (

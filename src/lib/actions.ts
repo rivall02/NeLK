@@ -607,6 +607,7 @@ export async function uploadDocument(formData: FormData) {
     throw new Error("File dokumen tidak ditemukan dalam permintaan.");
   }
 
+  const courseId = formData.get("courseId") as string | null;
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
 
@@ -653,10 +654,12 @@ export async function uploadDocument(formData: FormData) {
       mimeType: storedMimeType,
       content,
       userId: user.id,
+      courseId: courseId || null,
     },
   });
 
   revalidatePath("/app/files");
+  revalidatePath("/app/courses");
   return { success: true, document: doc };
 }
 

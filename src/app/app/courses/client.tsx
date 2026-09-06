@@ -16,6 +16,13 @@ import {
   CheckCircle,
   WarningCircle,
   ArrowLeft,
+  ArrowsClockwise,
+  GoogleLogo,
+  X,
+  FileText,
+  FolderOpen,
+  Link as LinkIcon,
+  CloudArrowUp,
 } from "@phosphor-icons/react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
@@ -29,11 +36,26 @@ import {
 } from "@/lib/actions";
 import { toast } from "sonner";
 
+type CourseDocument = {
+  id: string;
+  title: string;
+  fileUrl: string | null;
+  mimeType: string | null;
+  fileSize: number | null;
+  classroomId: string | null;
+  classroomUrl: string | null;
+  createdAt: Date;
+  createdAtFormatted: string;
+};
+
 type Course = {
   id: string;
   title: string;
   description: string | null;
+  courseId: string | null; // Google Classroom course ID
   createdAt: Date;
+  documentCount: number;
+  documents: CourseDocument[];
 };
 
 type Note = {
@@ -82,6 +104,16 @@ export default function CoursesClient({
   const [noteSearch, setNoteSearch] = useState("");
   const [visibilityFilter, setVisibilityFilter] = useState<"all" | "public" | "private">("all");
   const [noteCourseFilter, setNoteCourseFilter] = useState<string>("all");
+
+  // Classroom sync state
+  const [showClassroomSelect, setShowClassroomSelect] = useState(false);
+  const [classroomCourses, setClassroomCourses] = useState<any[]>([]);
+  const [selectedClassroomCourses, setSelectedClassroomCourses] = useState<string[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoadingCourses, setIsLoadingCourses] = useState(false);
+
+  // Course document viewer state
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
 
   // Save timeout
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -273,7 +305,10 @@ export default function CoursesClient({
       id: tempId,
       title: title.trim(),
       description: desc.trim() || null,
+      courseId: null,
       createdAt: new Date(),
+      documentCount: 0,
+      documents: [],
     };
 
     setCourses([newCourse, ...courses]);
@@ -306,6 +341,75 @@ export default function CoursesClient({
     }
   };
 
+  // Classroom sync handlers
+  async function handleSyncClassroom() {
+    if (!showClassroomSelect) {
+      setIsLoadingCourses(true);
+      try {
+        const res = await fetch("/api/classroom/courses");
+        if (res.ok) {
+          const data = await res.json();
+          setClassroomCourses(data.courses || []);
+          if (data.courses?.length === 0) {
+            toast.info("Tidak ada kelas yang ditemukan di Google Classroom.");
+            return;
+          }
+        } else {
+          const { signIn } = await import("next-auth/react");
+          await signIn("google", { callbackUrl: "/app/courses" });
+          return;
+        }
+      } catch (e) {
+        toast.error("Gagal mengambil daftar kelas dari Google Classroom.");
+        return;
+      } finally {
+        setIsLoadingCourses(false);
+      }
+    }
+    setShowClassroomSelect(!showClassroomSelect);
+  }
+
+  async function executeClassroomSync() {
+    if (selectedClassroomCourses.length === 0) {
+      toast.error("Pilih minimal satu kelas untuk disinkronkan.");
+      return;
+    }
+
+    setShowClassroomSelect(false);
+    setIsSyncing(true);
+    try {
+      const res = await fetch("/api/classroom/sync-materials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courseIds: selectedClassroomCourses }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        toast.success(result.message || `Berhasil menyinkronkan ${result.syncedDocuments} materi dari ${result.syncedCourses} kelas.`);
+        window.location.reload();
+      } else if (!result.connected) {
+        toast.info("Menghubungkan akun Google Classroom...");
+        const { signIn } = await import("next-auth/react");
+        await signIn("google", { callbackUrl: "/app/courses" });
+      } else {
+        toast.info(result.message || "Tidak ada materi baru dari Google Classroom.");
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Gagal menyinkronkan materi.");
+    } finally {
+      setIsSyncing(false);
+      setSelectedClassroomCourses([]);
+    }
+  }
+
+  function toggleClassroomCourse(courseId: string) {
+    setSelectedClassroomCourses((prev) =>
+      prev.includes(courseId)
+        ? prev.filter((id) => id !== courseId)
+        : [...prev, courseId]
+    );
+  }
+
   return (
     <div className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8 pt-6 min-h-screen">
       <header className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -328,36 +432,116 @@ export default function CoursesClient({
           </motion.p>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-1">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setActiveTab("modul")}
-            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
-              activeTab === "modul"
-                ? "bg-[var(--color-primary)] text-white"
-                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-            }`}
+            onClick={handleSyncClassroom}
+            disabled={isSyncing || isLoadingCourses}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors disabled:opacity-50"
           >
-            <span className="flex items-center gap-1.5">
-              <BookOpen size={14} />
-              Modul
-            </span>
+            {isSyncing ? (
+              <ArrowsClockwise size={14} className="animate-spin" />
+            ) : (
+              <GoogleLogo size={14} weight="fill" />
+            )}
+            {isLoadingCourses ? "Memuat..." : "Sync Classroom"}
           </button>
-          <button
-            onClick={() => setActiveTab("catatan")}
-            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
-              activeTab === "catatan"
-                ? "bg-[var(--color-primary)] text-white"
-                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-            }`}
-          >
-            <span className="flex items-center gap-1.5">
-              <Notebook size={14} />
-              Catatan
-            </span>
-          </button>
+
+          <div className="flex items-center gap-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-1">
+            <button
+              onClick={() => setActiveTab("modul")}
+              className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                activeTab === "modul"
+                  ? "bg-[var(--color-primary)] text-white"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                <BookOpen size={14} />
+                Modul
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab("catatan")}
+              className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                activeTab === "catatan"
+                  ? "bg-[var(--color-primary)] text-white"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                <Notebook size={14} />
+                Catatan
+              </span>
+            </button>
+          </div>
         </div>
       </header>
+
+      {/* Classroom Selection Modal */}
+      <AnimatePresence>
+        {showClassroomSelect && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mb-6 bg-[var(--color-surface)] border border-[var(--color-border)] p-5 rounded-3xl shadow-sm"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-[var(--color-text)] flex items-center gap-2">
+                <GoogleLogo size={16} weight="fill" className="text-blue-500" />
+                Pilih Kelas Google Classroom
+              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  {selectedClassroomCourses.length} dipilih
+                </span>
+                <button
+                  onClick={executeClassroomSync}
+                  disabled={selectedClassroomCourses.length === 0 || isSyncing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[var(--color-primary)] text-white rounded-lg hover:bg-[var(--color-primary-hover)] transition-colors disabled:opacity-50"
+                >
+                  {isSyncing ? (
+                    <ArrowsClockwise size={12} className="animate-spin" />
+                  ) : (
+                    <ArrowsClockwise size={12} />
+                  )}
+                  Sinkronkan
+                </button>
+                <button
+                  onClick={() => {
+                    setShowClassroomSelect(false);
+                    setSelectedClassroomCourses([]);
+                  }}
+                  className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {classroomCourses.map((course) => (
+                <label
+                  key={course.id}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-primary)] cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedClassroomCourses.includes(course.id)}
+                    onChange={() => toggleClassroomCourse(course.id)}
+                    className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                  />
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-[var(--color-text)]">{course.name}</p>
+                    {course.section && (
+                      <p className="text-[10px] text-[var(--color-text-muted)]">{course.section}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* MODUL TAB */}
       <AnimatePresence>
@@ -405,15 +589,20 @@ export default function CoursesClient({
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(i, 8) * 0.04 }}
-                  className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-5 hover:shadow-md transition-shadow group flex flex-col justify-between"
+                  className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-5 hover:shadow-md transition-shadow group flex flex-col justify-between cursor-pointer"
+                  onClick={() => setSelectedCourse(course)}
                 >
                   <div>
                     <div className="flex justify-between items-start mb-4">
                       <div className="w-12 h-12 rounded-2xl bg-[var(--color-primary-light)] text-[var(--color-primary)] flex items-center justify-center">
-                        <BookOpen size={24} weight="fill" />
+                        {course.courseId ? (
+                          <GoogleLogo size={24} weight="fill" />
+                        ) : (
+                          <BookOpen size={24} weight="fill" />
+                        )}
                       </div>
                       <button
-                        onClick={(e) => handleDelete(course.id, e)}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(course.id, e); }}
                         className="text-[var(--color-text-muted)] hover:text-red-500 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
                         aria-label="Hapus modul"
                       >
@@ -424,9 +613,18 @@ export default function CoursesClient({
                     <p className="text-xs text-[var(--color-text-muted)] line-clamp-2">
                       {course.description || "Belum ada deskripsi topik."}
                     </p>
+                    {course.documentCount > 0 && (
+                      <div className="mt-2 flex items-center gap-1 text-[11px] text-[var(--color-text-muted)]">
+                        <FolderOpen size={12} />
+                        {course.documentCount} materi
+                      </div>
+                    )}
                   </div>
-                  <div className="mt-4 pt-3 border-t border-[var(--color-border)] text-[11px] text-[var(--color-text-muted)] font-medium">
-                    Dibuat {new Date(course.createdAt).toLocaleDateString("id-ID")}
+                  <div className="mt-4 pt-3 border-t border-[var(--color-border)] text-[11px] text-[var(--color-text-muted)] font-medium flex justify-between items-center">
+                    <span>
+                      {course.courseId ? " Dari Classroom" : "Manual"}
+                    </span>
+                    <span>{new Date(course.createdAt).toLocaleDateString("id-ID")}</span>
                   </div>
                 </motion.div>
               ))}
@@ -440,6 +638,136 @@ export default function CoursesClient({
                   </p>
                 </div>
               )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Course Document Viewer */}
+      <AnimatePresence>
+        {selectedCourse && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-6 shadow-md"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-light)] text-[var(--color-primary)] flex items-center justify-center">
+                  {selectedCourse.courseId ? (
+                    <GoogleLogo size={20} weight="fill" />
+                  ) : (
+                    <BookOpen size={20} weight="fill" />
+                  )}
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-[var(--color-text)]">{selectedCourse.title}</h2>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    {selectedCourse.documents.length} materi
+                    {selectedCourse.description && ` • ${selectedCourse.description}`}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedCourse(null)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+              >
+                <ArrowLeft size={14} />
+                Kembali
+              </button>
+            </div>
+
+            {/* Documents List */}
+            {selectedCourse.documents.length > 0 ? (
+              <div className="space-y-3">
+                {selectedCourse.documents.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center gap-3 p-3 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-primary)] transition-colors group"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-[var(--color-primary-light)] text-[var(--color-primary)] flex items-center justify-center shrink-0">
+                      <FileText size={18} weight="fill" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[var(--color-text)] truncate">{doc.title}</p>
+                      <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
+                        <Clock size={10} />
+                        <span>{doc.createdAtFormatted}</span>
+                        {doc.classroomId && (
+                          <span className="flex items-center gap-0.5 text-blue-500">
+                            <GoogleLogo size={10} weight="fill" />
+                            Google Classroom
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {doc.classroomUrl ? (
+                        <a
+                          href={doc.classroomUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 text-[var(--color-text-muted)] hover:text-blue-500 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
+                          title="Buka di Google Classroom"
+                        >
+                          <LinkIcon size={14} />
+                        </a>
+                      ) : doc.fileUrl ? (
+                        <a
+                          href={doc.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-primary)] rounded-lg hover:bg-[var(--color-primary-light)] transition-colors"
+                          title="Buka file"
+                        >
+                          <LinkIcon size={14} />
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 flex flex-col items-center justify-center text-center">
+                <FolderOpen size={40} className="mb-3 opacity-30 text-[var(--color-text-muted)]" />
+                <p className="text-sm font-semibold text-[var(--color-text)]">Belum ada materi</p>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                  Materi dari Google Classroom akan muncul di sini setelah disinkronkan.
+                </p>
+              </div>
+            )}
+
+            {/* Upload Button */}
+            <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
+              <label className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-[var(--color-primary-light)] text-[var(--color-primary)] font-semibold text-xs cursor-pointer hover:bg-[var(--color-primary)] hover:text-white transition-colors">
+                <CloudArrowUp size={16} />
+                <span>Tambah Materi Manual</span>
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file || !selectedCourse) return;
+                    const fd = new FormData();
+                    fd.append("file", file);
+                    fd.append("courseId", selectedCourse.id);
+                    const toastId = toast.loading("Mengunggah materi...");
+                    try {
+                      const { uploadDocument } = await import("@/lib/actions");
+                      await uploadDocument(fd);
+                      toast.success("Materi berhasil ditambahkan!");
+                      window.location.reload();
+                    } catch (err: any) {
+                      toast.error(err.message || "Gagal mengunggah materi.");
+                    } finally {
+                      toast.dismiss(toastId);
+                      e.target.value = "";
+                    }
+                  }}
+                />
+              </label>
             </div>
           </motion.div>
         )}
