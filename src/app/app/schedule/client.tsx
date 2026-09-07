@@ -926,16 +926,76 @@ export default function ScheduleClient({
                   <button
                     onClick={async () => {
                       let addedCount = 0;
+
+                      // Helper: expand a day name like "Monday" or "Monday, Wednesday" to all dates in range
+                      const expandDaysToDates = (dayInput: string, startDate: Date, endDate: Date): Date[] => {
+                        const dayMap: Record<string, number> = {
+                          "sunday": 0,
+                          "senin": 1, "monday": 1,
+                          "selasa": 2, "tuesday": 2,
+                          "rabu": 3, "wednesday": 3,
+                          "kamis": 4, "thursday": 4,
+                          "jumat": 5, "friday": 5,
+                          "sabtu": 6, "saturday": 6,
+                        };
+
+                        const results: Date[] = [];
+                        const days = dayInput.split(",").map(d => dayMap[d.trim().toLowerCase()]).filter(d => d !== undefined) as number[];
+                        if (days.length === 0) return results;
+
+                        const cur = new Date(startDate);
+                        cur.setHours(0, 0, 0, 0);
+                        const end = new Date(endDate);
+                        end.setHours(0, 0, 0, 0);
+
+                        while (cur <= end) {
+                          if (days.includes(cur.getDay())) {
+                            results.push(new Date(cur));
+                          }
+                          cur.setDate(cur.getDate() + 1);
+                        }
+                        return results;
+                      };
+
                       for (const ev of extractedEvents) {
                         try {
-                          await createEvent({
-                            title: ev.title,
-                            date: new Date(ev.date),
-                            startTime: ev.startTime,
-                            endTime: ev.endTime,
-                            description: ev.description || undefined,
-                          });
-                          addedCount++;
+                          const evDate = new Date(ev.date);
+
+                          if (!evDate || isNaN(evDate.getTime())) {
+                            toast.error(`Invalid date for "${ev.title}"`);
+                            continue;
+                          }
+
+                          // If dateRange.end is set AND event has a day pattern, expand to all matching days
+                          const hasDay = ev.day && ev.day.trim() !== "";
+                          const hasRangeEnd = dateRange.end && dateRange.end.trim() !== "";
+                          const rangeStart = dateRange.start ? new Date(dateRange.start) : null;
+                          const rangeEnd = dateRange.end ? new Date(dateRange.end) : null;
+
+                          if (hasDay && hasRangeEnd && rangeStart && rangeEnd) {
+                            // Expand: get all dates for each day in the range
+                            const dates = expandDaysToDates(ev.day, rangeStart, rangeEnd);
+                            for (const d of dates) {
+                              await createEvent({
+                                title: ev.title,
+                                date: d,
+                                startTime: ev.startTime || "09:00",
+                                endTime: ev.endTime || "10:00",
+                                description: ev.description || undefined,
+                              });
+                              addedCount++;
+                            }
+                          } else {
+                            // Single event
+                            await createEvent({
+                              title: ev.title,
+                              date: evDate,
+                              startTime: ev.startTime || "09:00",
+                              endTime: ev.endTime || "10:00",
+                              description: ev.description || undefined,
+                            });
+                            addedCount++;
+                          }
                         } catch (err: any) {
                           toast.error(`Gagal menambahkan "${ev.title}": ${err.message}`);
                         }
