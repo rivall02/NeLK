@@ -927,6 +927,12 @@ export default function ScheduleClient({
                     onClick={async () => {
                       let addedCount = 0;
 
+                      // Helper: parse date string "YYYY-MM-DD" to local Date (avoid UTC timezone issues)
+                      const parseLocalDate = (dateStr: string): Date => {
+                        const [year, month, day] = dateStr.split("-").map(Number);
+                        return new Date(year, month - 1, day);
+                      };
+
                       // Helper: expand a day name like "Monday" or "Monday, Wednesday" to all dates in range
                       const expandDaysToDates = (dayInput: string, startDate: Date, endDate: Date): Date[] => {
                         const dayMap: Record<string, number> = {
@@ -959,7 +965,7 @@ export default function ScheduleClient({
 
                       for (const ev of extractedEvents) {
                         try {
-                          const evDate = new Date(ev.date);
+                          const evDate = parseLocalDate(ev.date);
 
                           if (!evDate || isNaN(evDate.getTime())) {
                             toast.error(`Invalid date for "${ev.title}"`);
@@ -969,8 +975,8 @@ export default function ScheduleClient({
                           // If dateRange.end is set AND event has a day pattern, expand to all matching days
                           const hasDay = ev.day && ev.day.trim() !== "";
                           const hasRangeEnd = dateRange.end && dateRange.end.trim() !== "";
-                          const rangeStart = dateRange.start ? new Date(dateRange.start) : null;
-                          const rangeEnd = dateRange.end ? new Date(dateRange.end) : null;
+                          const rangeStart = dateRange.start ? parseLocalDate(dateRange.start) : null;
+                          const rangeEnd = dateRange.end ? parseLocalDate(dateRange.end) : null;
 
                           if (hasDay && hasRangeEnd && rangeStart && rangeEnd) {
                             // Expand: get all dates for each day in the range
